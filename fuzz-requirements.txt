@@ -1,0 +1,9 @@
+cryptography
+bcrypt
+PyNaCl
+
+# python3-gssapi, libkrb5-dev
+gssapi
+invoke
+pyasn1
+ed25519
