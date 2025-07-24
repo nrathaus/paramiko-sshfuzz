@@ -129,59 +129,60 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-try:
-    sock.listen(100)
-    print("Listening for connection ...")
-    client, addr = sock.accept()
-except Exception as e:
-    print("*** Listen/accept failed: " + str(e))
-    traceback.print_exc()
-    sys.exit(1)
-
-print("Got a connection!")
-
-try:
-    t = paramiko.Transport(client, gss_kex=DoGSSAPIKeyExchange)
-    t.set_gss_host(socket.getfqdn(""))
+while True:
     try:
-        t.load_server_moduli()
-    except:
-        print("(Failed to load moduli -- gex will be unsupported.)")
-        raise
-    t.add_server_key(host_key)
-    server = Server()
-    try:
-        t.start_server(server=server)
-    except paramiko.SSHException as exception:
-        print(f"*** SSH negotiation failed. Exception: {exception}")
+        sock.listen(100)
+        print("Listening for connection ...")
+        client, addr = sock.accept()
+    except Exception as e:
+        print("*** Listen/accept failed: " + str(e))
+        traceback.print_exc()
         sys.exit(1)
 
-    # wait for auth
-    chan = t.accept(20)
-    if chan is None:
-        print("*** No channel.")
-        sys.exit(1)
-    print("Authenticated!")
+    print("Got a connection!")
 
-    server.event.wait(10)
-    if not server.event.is_set():
-        print("*** Client never asked for a shell.")
-        sys.exit(1)
-
-    chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
-    chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
-    chan.send("Happy birthday to Robot Dave!\r\n\r\n")
-    chan.send("Username: ")
-    f = chan.makefile("rU")
-    username = f.readline().strip("\r\n")
-    chan.send("\r\nI don't like you, " + username + ".\r\n")
-    chan.close()
-
-except Exception as e:
-    print("*** Caught exception: " + str(e.__class__) + ": " + str(e))
-    traceback.print_exc()
     try:
-        t.close()
-    except:
-        pass
-    sys.exit(1)
+        t = paramiko.Transport(client, gss_kex=DoGSSAPIKeyExchange)
+        t.set_gss_host(socket.getfqdn(""))
+        try:
+            t.load_server_moduli()
+        except:
+            print("(Failed to load moduli -- gex will be unsupported.)")
+            raise
+        t.add_server_key(host_key)
+        server = Server()
+        try:
+            t.start_server(server=server)
+        except paramiko.SSHException as exception:
+            print(f"*** SSH negotiation failed. Exception: {exception}")
+            continue
+
+        # wait for auth
+        chan = t.accept(20)
+        if chan is None:
+            print("*** No channel.")
+            continue
+        print("Authenticated!")
+
+        server.event.wait(10)
+        if not server.event.is_set():
+            print("*** Client never asked for a shell.")
+            continue
+
+        chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
+        chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
+        chan.send("Happy birthday to Robot Dave!\r\n\r\n")
+        chan.send("Username: ")
+        f = chan.makefile("rU")
+        username = f.readline().strip("\r\n")
+        chan.send("\r\nI don't like you, " + username + ".\r\n")
+        chan.close()
+
+    except Exception as e:
+        print("*** Caught exception: " + str(e.__class__) + ": " + str(e))
+        traceback.print_exc()
+        try:
+            t.close()
+        except:
+            pass
+        continue
