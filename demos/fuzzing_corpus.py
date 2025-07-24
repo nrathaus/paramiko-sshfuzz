@@ -74,8 +74,8 @@ def add_int(self, n):
     """
     if random.choice([False] * 7 + [True]):
         print(f"Fuzzing add_int: {n}")
-        print(f"Now: {n}")
         n = random.choice([0, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000])
+        print(f"Now: {n}")
 
     new_n = 0
     try:
@@ -143,16 +143,18 @@ def add_string(self, s):
 
 FuzzMaster = paramiko.fuzz.FuzzMaster
 FuzzMaster.MUTATION_PER_RUN = 10000
-# FuzzMaster.add_fuzzdef("add_byte",add_byte)
+FuzzMaster.add_fuzzdef("add_byte",add_byte)
 FuzzMaster.add_fuzzdef("add_string", add_string)
 FuzzMaster.add_fuzzdef("add_int", add_int)
 FuzzMaster.add_fuzzdef("add_boolean", add_boolean)
-# FuzzMaster.add_fuzzdef("add_adaptive_int",add_adaptive_int)
-# FuzzMaster.add_fuzzdef("add_int64",add_int64)
+FuzzMaster.add_fuzzdef("add_adaptive_int",add_adaptive_int)
+FuzzMaster.add_fuzzdef("add_int64",add_int64)
+
+random.seed(1337)
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-for i in range(100):
+for i in range(100000):
     try:
         client.connect(
             hostname="127.0.0.1", port=2200, username="robey", password="foo"
