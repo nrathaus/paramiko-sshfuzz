@@ -18,22 +18,27 @@
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
-import base64
-from binascii import hexlify
+# If you don't install paramiko, this will allow you to run the python without it
+#  makes it easier to debug the code paramiko
 import os
 import socket
 import sys
 import threading
 import traceback
+from binascii import hexlify
+
+file_path = os.path.abspath(".")
+sys.path.append(file_path)
+
+from base64 import decodebytes
 
 import paramiko
-from paramiko.py3compat import b, u, decodebytes
-
+from paramiko.util import u
 
 # setup logging
 paramiko.util.log_to_file("demo_server.log")
 
-host_key = paramiko.RSAKey(filename="test_rsa.key")
+host_key = paramiko.RSAKey(filename="demos/test_rsa.key")
 
 print("Read key: " + u(hexlify(host_key.get_fingerprint())))
 
@@ -164,9 +169,7 @@ try:
         sys.exit(1)
 
     chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
-    chan.send(
-        "We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n"
-    )
+    chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
     chan.send("Happy birthday to Robot Dave!\r\n\r\n")
     chan.send("Username: ")
     f = chan.makefile("rU")
