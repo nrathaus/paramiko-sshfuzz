@@ -33,10 +33,10 @@ sys.path.append(file_path)
 from base64 import decodebytes
 
 import paramiko
-from paramiko.util import u
+from paramiko.util import u, log_to_file
 
 # setup logging
-paramiko.util.log_to_file("demo_server.log")
+log_to_file("demo_server.log")
 
 host_key = paramiko.RSAKey(filename="demos/test_rsa.key")
 
