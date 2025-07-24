@@ -152,8 +152,8 @@ try:
     server = Server()
     try:
         t.start_server(server=server)
-    except paramiko.SSHException:
-        print("*** SSH negotiation failed.")
+    except paramiko.SSHException as exception:
+        print(f"*** SSH negotiation failed. Exception: {exception}")
         sys.exit(1)
 
     # wait for auth
