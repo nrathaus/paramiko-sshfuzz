@@ -18,8 +18,6 @@
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
-# If you don't install paramiko, this will allow you to run the python without it
-#  makes it easier to debug the code paramiko
 import os
 import socket
 import sys
@@ -27,6 +25,8 @@ import threading
 import traceback
 from binascii import hexlify
 
+# If you don't install paramiko, this will allow you to run the python without it
+#  makes it easier to debug the code paramiko
 file_path = os.path.abspath(".")
 sys.path.append(file_path)
 

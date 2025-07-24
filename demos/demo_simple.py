@@ -19,13 +19,15 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
 
-import base64
 import getpass
 import os
-import socket
 import sys
 import traceback
-from paramiko.py3compat import input
+
+# If you don't install paramiko, this will allow you to run the python without it
+#  makes it easier to debug the code paramiko
+file_path = os.path.abspath(".")
+sys.path.append(file_path)
 
 import paramiko
 
@@ -94,9 +96,7 @@ try:
             )
         except Exception:
             # traceback.print_exc()
-            password = getpass.getpass(
-                "Password for %s@%s: " % (username, hostname)
-            )
+            password = getpass.getpass("Password for %s@%s: " % (username, hostname))
             client.connect(hostname, port, username, password)
 
     chan = client.invoke_shell()
