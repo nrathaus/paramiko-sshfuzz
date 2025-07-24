@@ -27,6 +27,8 @@ from paramiko import util
 from paramiko.common import zero_byte, max_byte, one_byte
 from paramiko.util import u
 
+# Add fuzzing support
+import paramiko.fuzz
 
 class Message:
     """
@@ -197,6 +199,7 @@ class Message:
         """
         return self.get_text().split(",")
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_bytes(self, b):
         """
         Write bytes to the stream, without any formatting.
@@ -206,6 +209,7 @@ class Message:
         self.packet.write(b)
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_byte(self, b):
         """
         Write a single byte to the stream, without any formatting.
@@ -215,6 +219,7 @@ class Message:
         self.packet.write(b)
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_boolean(self, b):
         """
         Add a boolean value to the stream.
@@ -227,6 +232,7 @@ class Message:
             self.packet.write(zero_byte)
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_int(self, n):
         """
         Add an integer to the stream.
@@ -249,6 +255,7 @@ class Message:
             self.packet.write(struct.pack(">I", n))
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_int64(self, n):
         """
         Add a 64-bit int to the stream.
@@ -270,6 +277,7 @@ class Message:
 
     # TODO: see the TODO for get_string/get_text/et al, this should change
     # to match.
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_string(self, s):
         """
         Add a bytestring to the stream.
