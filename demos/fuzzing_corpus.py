@@ -2,7 +2,7 @@
 
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
 
 # If you don't install paramiko, this will allow you to run the python without it
@@ -53,13 +53,16 @@ def add_boolean(self, b):
     :param bool b: boolean value to add
     """
     if random.choice([False] * 7 + [True]):
+        print(f"Fuzzing add_boolean: {b}")
         b = random.choice(range(2, 0xFF))
-        self.packet.write(str(b))
+        print(f"Now: {b}")
+        self.packet.write(bytes(b))
     else:
         if b:
             self.packet.write(one_byte)
         else:
-            self.packet.write(zero_byte)
+            self.packet.write(zero_byte.encode('utf-8'))
+
     return self
 
 
@@ -70,11 +73,17 @@ def add_int(self, n):
     :param int n: integer to add
     """
     if random.choice([False] * 7 + [True]):
-        print(f"Fuzzing: {n}")
-        n = random.choice([0, 0xFFFFFFFF, 0xFFFFFFFF / 2])
+        print(f"Fuzzing add_int: {n}")
         print(f"Now: {n}")
+        n = random.choice([0, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000])
 
-    self.packet.write(struct.pack(">I", n))
+    new_n = 0
+    try:
+        new_n = struct.pack(">I", n)
+    except Exception as exception:
+        print(f"Unable to encode 'n' into int")
+
+    self.packet.write(new_n)
     return self
 
 
@@ -101,6 +110,19 @@ def add_int64(self, n):
     self.packet.write(struct.pack(">Q", n))
     return self
 
+# Each module, uses its own asbytes - so lets take the one in the common.py
+#  before the 'split' between modules
+
+def asbytes(s):
+    if not isinstance(s, bytes):
+        if isinstance(s, str):
+            s = util.b(s)
+        else:
+            try:
+                s = s.asbytes()
+            except Exception:
+                raise Exception('Unknown type')
+    return s
 
 def add_string(self, s):
     """
@@ -108,11 +130,13 @@ def add_string(self, s):
 
     :param str s: string to add
     """
-    s = common.asbytes(s)
+    s = asbytes(s)
     if random.choice([False] * 7 + [True]):
+        print(f"Adding to {s} - an int")
         self.add_int(0xFFFFFFFF)
     else:
         self.add_int(len(s))
+
     self.packet.write(s)
     return self
 
@@ -130,7 +154,9 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 for i in range(100):
     try:
-        client.connect(hostname="127.0.0.1", port=2200, username="robey", password="foo")
+        client.connect(
+            hostname="127.0.0.1", port=2200, username="robey", password="foo"
+        )
         _, sout, _ = client.exec_command("whoami")
         print(sout.read())
         _, sout, _ = client.exec_command("whoami")
