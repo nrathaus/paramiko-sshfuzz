@@ -42,7 +42,10 @@ class Message:
     """
 
     big_int = 0xFF000000
+    # Stores the name of the message
     name = ''
+    # Stores the fields that were added to the Message
+    fields = []
 
     def __init__(self, name, content=None):
         """
