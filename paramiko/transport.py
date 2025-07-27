@@ -124,6 +124,8 @@ from paramiko.util import (
     b,
 )
 
+# Add fuzzing support
+import paramiko.fuzz
 
 # TripleDES is moving from `cryptography.hazmat.primitives.ciphers.algorithms`
 # in cryptography>=43.0.0 to `cryptography.hazmat.decrepit.ciphers.algorithms`
@@ -1954,6 +1956,7 @@ class Transport(threading.Thread, ClosingContextManager):
         """used by a Channel to remove itself from the active channel list"""
         self._channels.delete(chanid)
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def _send_message(self, data):
         self.packetizer.send_message(data)
 
