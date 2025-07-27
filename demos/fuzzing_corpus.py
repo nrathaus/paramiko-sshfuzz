@@ -1,30 +1,36 @@
 #!/usr/bin/python3
 
+import random
+
+import getpass
+
+import os
+import sys
+
+import struct
+
 import logging
+from io import BytesIO
 
 # logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
 
-# If you don't install paramiko, this will allow you to run the python without it
-#  makes it easier to debug the code paramiko
-import os
-import sys
-
 file_path = os.path.abspath(".")
 sys.path.append(file_path)
 
-import struct
+# If you don't install paramiko, this will allow you to run the python without it
+#  makes it easier to debug the code paramiko
 
 import paramiko
 import paramiko.fuzz
-from paramiko import Message, common, util
+from paramiko import Message, util
 
-zero_byte = "\x00"
-one_byte = "\x01"
-max_byte = "\xff"
+zero_byte = b"\x00"
+one_byte = b"\x01"
+max_byte = b"\xff"
 
-import random
 
+messages_prototypes = {}
 
 def add_bytes(self, b):
     """
@@ -32,6 +38,8 @@ def add_bytes(self, b):
 
     :param str b: bytes to add
     """
+
+    self.fields.append(['add_bytes', b])
     self.packet.write(b)
     return self
 
@@ -42,6 +50,8 @@ def add_byte(self, b):
 
     :param str b: byte to add
     """
+
+    self.fields.append(['add_byte', b])
     self.packet.write(b)
     return self
 
@@ -52,36 +62,45 @@ def add_boolean(self, b):
 
     :param bool b: boolean value to add
     """
-    if random.choice([False] * 7 + [True]):
-        print(f"Fuzzing add_boolean: {b}")
+
+    self.fields.append(['add_boolean', b])
+
+    # Disable randomization
+    if False and random.choice([False] * 7 + [True]):
+        # print(f"Fuzzing add_boolean: {b}")
         b = random.choice(range(2, 0xFF))
-        print(f"Now: {b}")
+        # print(f"Now: {b}")
         self.packet.write(bytes(b))
     else:
         if b:
             self.packet.write(one_byte)
         else:
-            self.packet.write(zero_byte.encode('utf-8'))
+            self.packet.write(zero_byte)
 
     return self
 
 
-def add_int(self, n):
+def add_int(self, n, direct = True):
     """
     Add an integer to the stream.
 
     :param int n: integer to add
     """
-    if random.choice([False] * 7 + [True]):
-        print(f"Fuzzing add_int: {n}")
+
+    if direct:
+        self.fields.append(['add_int', n])
+
+    # Disable randomization
+    if False and random.choice([False] * 7 + [True]):
+        # print(f"Fuzzing add_int: {n}")
         n = random.choice([0, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000])
-        print(f"Now: {n}")
+        # print(f"Now: {n}")
 
     new_n = 0
     try:
         new_n = struct.pack(">I", n)
     except Exception as exception:
-        print(f"Unable to encode 'n' into int")
+        print(f"Unable to encode 'n' into int, exception: {exception}")
 
     self.packet.write(new_n)
     return self
@@ -93,11 +112,14 @@ def add_adaptive_int(self, n):
 
     :param int n: integer to add
     """
+
+    self.fields.append(['add_adaptive_int', n])
     if n >= Message.big_int:
         self.packet.write(max_byte)
         self.add_string(util.deflate_long(n))
     else:
         self.packet.write(struct.pack(">I", n))
+
     return self
 
 
@@ -107,57 +129,159 @@ def add_int64(self, n):
 
     :param long n: long int to add
     """
+
+    self.fields.append(['add_int64', n])
     self.packet.write(struct.pack(">Q", n))
     return self
+
 
 # Each module, uses its own asbytes - so lets take the one in the common.py
 #  before the 'split' between modules
 
+
 def asbytes(s):
     if not isinstance(s, bytes):
         if isinstance(s, str):
-            s = util.b(s)
-        else:
-            try:
-                s = s.asbytes()
-            except Exception:
-                raise Exception('Unknown type')
+            return util.b(s)
+
+        try:
+            s = s.asbytes()
+        except Exception:
+            raise Exception("Unknown type")
+
     return s
 
-def add_string(self, s):
+
+def add_string(self, s, direct = True):
     """
     Add a string to the stream.
 
     :param str s: string to add
     """
+
+    if direct:
+        self.fields.append(['add_string', s])
+
     s = asbytes(s)
-    if random.choice([False] * 7 + [True]):
-        print(f"Adding to {s} - an int")
+    if False and random.choice([False] * 7 + [True]):
+        # print(f"Adding to {s} - an int")
         self.add_int(0xFFFFFFFF)
     else:
-        self.add_int(len(s))
+        self.add_int(len(s), False)
 
     self.packet.write(s)
     return self
 
 
+def add_list(self, l):  # noqa: E741
+    """
+    Add a list of strings to the stream.  They are encoded identically to
+    a single string of values separated by commas.  (Yes, really, that's
+    how SSH2 does it.)
+
+    :param l: list of strings to add
+    """
+    self.add_string(",".join(l), False)
+    return self
+
+def _send_message(self, data):
+    """
+    Override the '_send_message', we want it to ignore the 'add_' calls
+      and use the fields in either default state or in their fuzzed state
+    """
+
+    messages_prototype = None
+    if data.name not in messages_prototypes:
+        # If we haven't seen this prototype before, add it to the list with the fields at
+        #   their default state
+        messages_prototypes[data.name] = {
+            'current': -1, # No field is being fuzzed
+            'pos': 0, # The field being fuzzed position (0 being default)
+            'fields': data.fields.copy()
+        }
+    else:
+        # If we have seen this prototype before, move the fields to the next step
+        pass
+
+    messages_prototype = messages_prototypes[data.name]
+
+    # # Init the packet
+    data.packet = BytesIO()
+    for field in messages_prototype['fields']:
+        # field has two values at position:
+        #  0 - func
+        #  1 - default value
+        func_name = field[0]
+        default_value = field[1]
+        if func_name == 'add_byte':
+            add_byte(data, default_value)
+            continue
+        if func_name == 'add_bytes':
+            add_byte(data, default_value)
+            continue
+        if func_name == 'add_string':
+            add_string(data, default_value)
+            continue
+        if func_name == 'add_int':
+            add_int(data, default_value)
+            continue
+        if func_name == 'add_boolean':
+            add_boolean(data, default_value)
+            continue
+
+        # If we fall through the cracks, just write the default value
+        raise ValueError("Forgot to define func")
+    
+    self.packetizer.send_message(data)
+
 FuzzMaster = paramiko.fuzz.FuzzMaster
 FuzzMaster.MUTATION_PER_RUN = 10000
-FuzzMaster.add_fuzzdef("add_byte",add_byte)
+FuzzMaster.add_fuzzdef("add_byte", add_byte)
+FuzzMaster.add_fuzzdef("add_bytes", add_bytes)
+FuzzMaster.add_fuzzdef("add_list", add_list)
 FuzzMaster.add_fuzzdef("add_string", add_string)
 FuzzMaster.add_fuzzdef("add_int", add_int)
 FuzzMaster.add_fuzzdef("add_boolean", add_boolean)
-FuzzMaster.add_fuzzdef("add_adaptive_int",add_adaptive_int)
-FuzzMaster.add_fuzzdef("add_int64",add_int64)
+FuzzMaster.add_fuzzdef("add_adaptive_int", add_adaptive_int)
+FuzzMaster.add_fuzzdef("add_int64", add_int64)
+FuzzMaster.add_fuzzdef("_send_message", _send_message)
 
 random.seed(1337)
 
+port = 22
+
+# get hostname
+username = ""
+if len(sys.argv) > 1:
+    hostname = sys.argv[1]
+    if hostname.find("@") >= 0:
+        username, hostname = hostname.split("@")
+else:
+    hostname = input("Hostname: ")
+if len(hostname) == 0:
+    print("*** Hostname required.")
+    sys.exit(1)
+
+if hostname.find(":") >= 0:
+    hostname, portstr = hostname.split(":")
+    port = int(portstr)
+
+# get username
+if username == "":
+    default_username = getpass.getuser()
+    username = input("Username [%s]: " % default_username)
+    if len(username) == 0:
+        username = default_username
+
+password = getpass.getpass("Password for %s@%s: " % (username, hostname))
+
+
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-for i in range(100000):
+for i in range(1000):
     try:
         client.connect(
-            hostname="127.0.0.1", port=2200, username="robey", password="foo"
+            hostname=hostname, port=port, username=username, password=password
         )
         _, sout, _ = client.exec_command("whoami")
         print(sout.read())
@@ -173,5 +297,6 @@ for i in range(100000):
         print("STOP FUZZING")
 
         break
-    except Exception as e:
-        print(f"{e=}")
+
+
+print(f"{messages_prototypes=}")
