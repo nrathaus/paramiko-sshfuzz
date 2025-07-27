@@ -819,7 +819,7 @@ class PKey:
             # This seems the cleanest way to 'clone' an already-being-read
             # message; they're *IO objects at heart and their .getvalue()
             # always returns the full value regardless of pointer position.
-            self.load_certificate(Message('check-type-and-load-cert' msg.asbytes()))
+            self.load_certificate(Message('check-type-and-load-cert', msg.asbytes()))
             # Read out nonce as it comes before the public numbers - our caller
             # is likely going to use the (only borrowed by us, not owned)
             # 'msg' object for loading those numbers right after this.
