@@ -47,7 +47,7 @@ class KexCurve25519:
             self.transport._expect_packet(_MSG_KEXECDH_INIT)
             return
 
-        m = Message()
+        m = Message('KexCurve25519 MSG_KEXECDH_INIT')
         m.add_byte(c_MSG_KEXECDH_INIT)
         m.add_string(
             self.key.public_key().public_bytes(
@@ -72,7 +72,7 @@ class KexCurve25519:
         K = self._perform_exchange(peer_key)
         K = int(binascii.hexlify(K), 16)
         # compute exchange hash
-        hm = Message()
+        hm = Message('KexCurve25519 parse-kexecdh-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -93,7 +93,7 @@ class KexCurve25519:
             H, self.transport.host_key_type
         )
         # construct reply
-        m = Message()
+        m = Message('KexCurve25519 MSG_KEXECDH_REPLY')
         m.add_byte(c_MSG_KEXECDH_REPLY)
         m.add_string(server_key_bytes)
         m.add_string(exchange_key_bytes)
@@ -111,7 +111,7 @@ class KexCurve25519:
         K = self._perform_exchange(peer_key)
         K = int(binascii.hexlify(K), 16)
         # compute exchange hash and verify signature
-        hm = Message()
+        hm = Message('KexCurve25519 parse-kexecdh-reply')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,

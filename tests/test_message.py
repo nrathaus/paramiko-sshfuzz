@@ -37,7 +37,7 @@ class MessageTest(unittest.TestCase):
     __d = b"\x00\x00\x00\x05\xff\x00\x00\x00\x05\x11\x22\x33\x44\x55\xff\x00\x00\x00\x0a\x00\xf0\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x03\x63\x61\x74\x00\x00\x00\x03\x61\x2c\x62"  # noqa
 
     def test_encode(self):
-        msg = Message()
+        msg = Message('')
         msg.add_int(23)
         msg.add_int(123789456)
         msg.add_string("q")
@@ -45,7 +45,7 @@ class MessageTest(unittest.TestCase):
         msg.add_string("x" * 1000)
         self.assertEqual(msg.asbytes(), self.__a)
 
-        msg = Message()
+        msg = Message('')
         msg.add_boolean(True)
         msg.add_boolean(False)
         msg.add_byte(byte_chr(0xF3))
@@ -54,7 +54,7 @@ class MessageTest(unittest.TestCase):
         msg.add_list(["huey", "dewey", "louie"])
         self.assertEqual(msg.asbytes(), self.__b)
 
-        msg = Message()
+        msg = Message('')
         msg.add_int64(5)
         msg.add_int64(0xF5E4D3C2B109)
         msg.add_mpint(17)
@@ -63,21 +63,21 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(msg.asbytes(), self.__c)
 
     def test_decode(self):
-        msg = Message(self.__a)
+        msg = Message('', self.__a)
         self.assertEqual(msg.get_int(), 23)
         self.assertEqual(msg.get_int(), 123789456)
         self.assertEqual(msg.get_text(), "q")
         self.assertEqual(msg.get_text(), "hello")
         self.assertEqual(msg.get_text(), "x" * 1000)
 
-        msg = Message(self.__b)
+        msg = Message('', self.__b)
         self.assertEqual(msg.get_boolean(), True)
         self.assertEqual(msg.get_boolean(), False)
         self.assertEqual(msg.get_byte(), byte_chr(0xF3))
         self.assertEqual(msg.get_bytes(2), zero_byte + byte_chr(0x3F))
         self.assertEqual(msg.get_list(), ["huey", "dewey", "louie"])
 
-        msg = Message(self.__c)
+        msg = Message('', self.__c)
         self.assertEqual(msg.get_int64(), 5)
         self.assertEqual(msg.get_int64(), 0xF5E4D3C2B109)
         self.assertEqual(msg.get_mpint(), 17)
@@ -85,7 +85,7 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(msg.get_mpint(), -0x65E4D3C2B109)
 
     def test_add(self):
-        msg = Message()
+        msg = Message('')
         msg.add(5)
         msg.add(0x1122334455)
         msg.add(0xF00000000000000000)
@@ -95,7 +95,7 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(msg.asbytes(), self.__d)
 
     def test_misc(self):
-        msg = Message(self.__d)
+        msg = Message('', self.__d)
         self.assertEqual(msg.get_adaptive_int(), 5)
         self.assertEqual(msg.get_adaptive_int(), 0x1122334455)
         self.assertEqual(msg.get_adaptive_int(), 0xF00000000000000000)
@@ -107,7 +107,7 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(msg.get_remainder(), self.__d[4:])
 
     def test_bytes_str_and_repr(self):
-        msg = Message(self.__d)
+        msg = Message('', self.__d)
         assert str(msg) == f"paramiko.Message({self.__d!r})"
         assert repr(msg) == str(msg)
         assert bytes(msg) == msg.asbytes() == self.__d

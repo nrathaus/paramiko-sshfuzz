@@ -34,7 +34,7 @@ class KexNistp256:
         if self.transport.server_mode:
             self.transport._expect_packet(_MSG_KEXECDH_INIT)
             return
-        m = Message()
+        m = Message('KexNistp256 MSG_KEXECDH_INIT')
         m.add_byte(c_MSG_KEXECDH_INIT)
         # SEC1: V2.0  2.3.3 Elliptic-Curve-Point-to-Octet-String Conversion
         m.add_string(
@@ -71,7 +71,7 @@ class KexNistp256:
         K = self.P.exchange(ec.ECDH(), self.Q_C)
         K = int(hexlify(K), 16)
         # compute exchange hash
-        hm = Message()
+        hm = Message('KexNistp256 parse-kexecdh-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -94,7 +94,7 @@ class KexNistp256:
             H, self.transport.host_key_type
         )
         # construct reply
-        m = Message()
+        m = Message('KexNistp256 MSG_KEXECDH_REPLY')
         m.add_byte(c_MSG_KEXECDH_REPLY)
         m.add_string(K_S)
         m.add_string(
@@ -117,7 +117,7 @@ class KexNistp256:
         K = self.P.exchange(ec.ECDH(), self.Q_S)
         K = int(hexlify(K), 16)
         # compute exchange hash and verify signature
-        hm = Message()
+        hm = Message('KexNistp256 parse-kexecdh-reply')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,

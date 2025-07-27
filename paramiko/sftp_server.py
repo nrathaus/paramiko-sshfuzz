@@ -148,7 +148,7 @@ class SFTPServer(BaseSFTP, SubsystemHandler):
                 self._log(DEBUG, "Exception on channel: " + str(e))
                 self._log(DEBUG, util.tb_strings())
                 return
-            msg = Message(data)
+            msg = Message('SFTPServer start-subsystem', data)
             request_number = msg.get_int()
             try:
                 self._process(t, request_number, msg)
@@ -222,7 +222,7 @@ class SFTPServer(BaseSFTP, SubsystemHandler):
     # ...internals...
 
     def _response(self, request_number, t, *args):
-        msg = Message()
+        msg = Message('SFTPServer response')
         msg.add_int(request_number)
         for item in args:
             # NOTE: this is a very silly tiny class used for SFTPFile mostly
@@ -279,7 +279,7 @@ class SFTPServer(BaseSFTP, SubsystemHandler):
         if len(flist) == 0:
             self._send_status(request_number, SFTP_EOF)
             return
-        msg = Message()
+        msg = Message('SFTPServer read-folder')
         msg.add_int(request_number)
         msg.add_int(len(flist))
         for attr in flist:
@@ -348,7 +348,7 @@ class SFTPServer(BaseSFTP, SubsystemHandler):
                 offset += count
             sum_out += hash_obj.digest()
 
-        msg = Message()
+        msg = Message('SFTPServer check-file')
         msg.add_int(request_number)
         msg.add_string("check-file")
         msg.add_string(algname)

@@ -61,7 +61,7 @@ class KexGroup1:
             return
         # compute e = g^x mod p (where g=2), and send it
         self.e = pow(self.G, self.x, self.P)
-        m = Message()
+        m = Message('KexGroup1 MSG_KEXDH_INIT')
         m.add_byte(c_MSG_KEXDH_INIT)
         m.add_mpint(self.e)
         self.transport._send_message(m)
@@ -104,7 +104,7 @@ class KexGroup1:
         K = pow(self.f, self.x, self.P)
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || e || f || K)
-        hm = Message()
+        hm = Message('KexGroup1 parse-kexdh-reply')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,
@@ -128,7 +128,7 @@ class KexGroup1:
         key = self.transport.get_server_key().asbytes()
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || e || f || K)
-        hm = Message()
+        hm = Message('KexGroup1 parse-kexdh-gex-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -146,7 +146,7 @@ class KexGroup1:
             H, self.transport.host_key_type
         )
         # send reply
-        m = Message()
+        m = Message('MSG_KEXDH_REPLY')
         m.add_byte(c_MSG_KEXDH_REPLY)
         m.add_string(key)
         m.add_mpint(self.f)

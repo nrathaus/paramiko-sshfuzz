@@ -42,11 +42,14 @@ class Message:
     """
 
     big_int = 0xFF000000
+    name = ''
 
-    def __init__(self, content=None):
+    def __init__(self, name, content=None):
         """
         Create a new SSH2 message.
 
+        :param str name:
+            the name of the message being sent
         :param bytes content:
             the byte stream to use as the message content (passed in only when
             decomposing a message).
@@ -63,7 +66,7 @@ class Message:
         """
         Returns a string representation of this object, for debugging.
         """
-        return "paramiko.Message(" + repr(self.packet.getvalue()) + ")"
+        return "paramiko.Message(" + repr(self.name) + ", " + repr(self.packet.getvalue()) + ")"
 
     # TODO 4.0: just merge into __bytes__ (everywhere)
     def asbytes(self):

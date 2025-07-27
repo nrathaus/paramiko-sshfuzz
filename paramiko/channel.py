@@ -185,7 +185,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST pty-req')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("pty-req")
@@ -218,7 +218,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST shell')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("shell")
@@ -244,7 +244,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST exec')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("exec")
@@ -270,7 +270,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST subsystem')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("subsystem")
@@ -295,7 +295,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('cMSG_CHANNEL_REQUEST window-change')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("window-change")
@@ -350,7 +350,7 @@ class Channel(ClosingContextManager):
             `.SSHException` -- if the request was rejected or the channel was
             closed
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST env')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("env")
@@ -414,7 +414,7 @@ class Channel(ClosingContextManager):
         """
         # in many cases, the channel will not still be open here.
         # that's fine.
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST exit-status')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("exit-status")
@@ -474,7 +474,7 @@ class Channel(ClosingContextManager):
         if auth_cookie is None:
             auth_cookie = binascii.hexlify(os.urandom(16))
 
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST x11-req')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("x11-req")
@@ -504,7 +504,7 @@ class Channel(ClosingContextManager):
 
         :raises: SSHException in case of channel problem.
         """
-        m = Message()
+        m = Message('MSG_CHANNEL_REQUEST auth-agent-req')
         m.add_byte(cMSG_CHANNEL_REQUEST)
         m.add_int(self.remote_chanid)
         m.add_string("auth-agent-req@openssh.com")
@@ -701,7 +701,7 @@ class Channel(ClosingContextManager):
         ack = self._check_add_window(len(out))
         # no need to hold the channel lock when sending this
         if ack > 0:
-            m = Message()
+            m = Message('MSG_CHANNEL_WINDOW_ADJUST recv')
             m.add_byte(cMSG_CHANNEL_WINDOW_ADJUST)
             m.add_int(self.remote_chanid)
             m.add_int(ack)
@@ -749,7 +749,7 @@ class Channel(ClosingContextManager):
         ack = self._check_add_window(len(out))
         # no need to hold the channel lock when sending this
         if ack > 0:
-            m = Message()
+            m = Message('MSG_CHANNEL_WINDOW_ADJUST recv-stderr')
             m.add_byte(cMSG_CHANNEL_WINDOW_ADJUST)
             m.add_int(self.remote_chanid)
             m.add_int(ack)
@@ -793,7 +793,7 @@ class Channel(ClosingContextManager):
             by `settimeout`.
         """
 
-        m = Message()
+        m = Message('MSG_CHANNEL_DATA')
         m.add_byte(cMSG_CHANNEL_DATA)
         m.add_int(self.remote_chanid)
         return self._send(s, m)
@@ -816,7 +816,7 @@ class Channel(ClosingContextManager):
         .. versionadded:: 1.1
         """
 
-        m = Message()
+        m = Message('MSG_CHANNEL_EXTENDED_DATA')
         m.add_byte(cMSG_CHANNEL_EXTENDED_DATA)
         m.add_int(self.remote_chanid)
         m.add_int(1)
@@ -1152,10 +1152,12 @@ class Channel(ClosingContextManager):
             self._log(DEBUG, 'Unhandled channel request "{}"'.format(key))
             ok = False
         if want_reply:
-            m = Message()
+            m = Message('')
             if ok:
+                m.name = 'MSG_CHANNEL_SUCCESS'
                 m.add_byte(cMSG_CHANNEL_SUCCESS)
             else:
+                m.name = 'MSG_CHANNEL_FAILURE'
                 m.add_byte(cMSG_CHANNEL_FAILURE)
             m.add_int(self.remote_chanid)
             self.transport._send_user_message(m)
@@ -1239,7 +1241,7 @@ class Channel(ClosingContextManager):
         # you are holding the lock.
         if self.eof_sent:
             return None
-        m = Message()
+        m = Message('MSG_CHANNEL_EOF')
         m.add_byte(cMSG_CHANNEL_EOF)
         m.add_int(self.remote_chanid)
         self.eof_sent = True
@@ -1251,7 +1253,7 @@ class Channel(ClosingContextManager):
         if not self.active or self.closed:
             return None, None
         m1 = self._send_eof()
-        m2 = Message()
+        m2 = Message('MSG_CHANNEL_CLOSE')
         m2.add_byte(cMSG_CHANNEL_CLOSE)
         m2.add_int(self.remote_chanid)
         self._set_closed()

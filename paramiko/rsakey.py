@@ -64,7 +64,7 @@ class RSAKey(PKey):
             self._from_private_key_file(filename, password)
             return
         if (msg is None) and (data is not None):
-            msg = Message(data)
+            msg = Message('RSAKey', data)
         if key is not None:
             self.key = key
         else:
@@ -95,7 +95,7 @@ class RSAKey(PKey):
             return self.key.public_numbers()
 
     def asbytes(self):
-        m = Message()
+        m = Message('RSAKey asbytes')
         m.add_string(self.name)
         m.add_mpint(self.public_numbers.e)
         m.add_mpint(self.public_numbers.n)
@@ -129,7 +129,7 @@ class RSAKey(PKey):
             # SHA256 - cert'ness is not truly relevant.
             algorithm=self.HASHES[algorithm](),
         )
-        m = Message()
+        m = Message('RSAKey sign-ssh-data')
         # And here again, cert'ness is irrelevant, so it is stripped out.
         m.add_string(algorithm.replace("-cert-v01@openssh.com", ""))
         m.add_string(sig)

@@ -127,7 +127,7 @@ class ECDSAKey(PKey):
             self._from_private_key_file(filename, password)
             return
         if (msg is None) and (data is not None):
-            msg = Message(data)
+            msg = Message('ECDASAKey', data)
         if vals is not None:
             self.signing_key, self.verifying_key = vals
             c_class = self.signing_key.curve.__class__
@@ -179,7 +179,7 @@ class ECDSAKey(PKey):
 
     def asbytes(self):
         key = self.verifying_key
-        m = Message()
+        m = Message('ECDSAKey asbytes')
         m.add_string(self.ecdsa_curve.key_format_identifier)
         m.add_string(self.ecdsa_curve.nist_name)
 
@@ -222,7 +222,7 @@ class ECDSAKey(PKey):
         sig = self.signing_key.sign(data, ecdsa)
         r, s = decode_dss_signature(sig)
 
-        m = Message()
+        m = Message('sign_ssh_data')
         m.add_string(self.ecdsa_curve.key_format_identifier)
         m.add_string(self._sigencode(r, s))
         return m
@@ -303,7 +303,7 @@ class ECDSAKey(PKey):
                 raise SSHException(str(e))
         elif pkformat == self._PRIVATE_KEY_FORMAT_OPENSSH:
             try:
-                msg = Message(data)
+                msg = Message('decode-key', data)
                 curve_name = msg.get_text()
                 verkey = msg.get_binary()  # noqa: F841
                 sigkey = msg.get_mpint()
@@ -327,13 +327,13 @@ class ECDSAKey(PKey):
         self.ecdsa_curve = self._ECDSA_CURVES.get_by_curve_class(curve_class)
 
     def _sigencode(self, r, s):
-        msg = Message()
+        msg = Message('sigencode')
         msg.add_mpint(r)
         msg.add_mpint(s)
         return msg.asbytes()
 
     def _sigdecode(self, sig):
-        msg = Message(sig)
+        msg = Message('sigdecode', sig)
         r = msg.get_mpint()
         s = msg.get_mpint()
         return r, s

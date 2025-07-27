@@ -108,7 +108,7 @@ class KexGSSGroup1:
         self.e = pow(self.G, self.x, self.P)
         # Initialize GSS-API Key Exchange
         self.gss_host = self.transport.gss_host
-        m = Message()
+        m = Message('KexGSSGroup1 MSG_KEXGSS_INIT')
         m.add_byte(c_MSG_KEXGSS_INIT)
         m.add_string(self.kexgss.ssh_init_sec_context(target=self.gss_host))
         m.add_mpint(self.e)
@@ -180,7 +180,7 @@ class KexGSSGroup1:
         """
         if not self.transport.server_mode:
             srv_token = m.get_string()
-            m = Message()
+            m = Message('KexGSSGroup1 MSG_KEXGSS_CONTINUE')
             m.add_byte(c_MSG_KEXGSS_CONTINUE)
             m.add_string(
                 self.kexgss.ssh_init_sec_context(
@@ -216,7 +216,7 @@ class KexGSSGroup1:
         K = pow(self.f, self.x, self.P)
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || e || f || K)
-        hm = Message()
+        hm = Message('KexGSSGroup1 parse-kexgss-complete')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,
@@ -255,7 +255,7 @@ class KexGSSGroup1:
         key = self.transport.host_key.__str__()
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || e || f || K)
-        hm = Message()
+        hm = Message('parse-kexgss-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -271,11 +271,12 @@ class KexGSSGroup1:
         srv_token = self.kexgss.ssh_accept_sec_context(
             self.gss_host, client_token
         )
-        m = Message()
+        m = Message('')
         if self.kexgss._gss_srv_ctxt_status:
             mic_token = self.kexgss.ssh_get_mic(
                 self.transport.session_id, gss_kex=True
             )
+            m.name = 'KexGSSGroup1 MSG_KEXGSS_COMPLETE'
             m.add_byte(c_MSG_KEXGSS_COMPLETE)
             m.add_mpint(self.f)
             m.add_string(mic_token)
@@ -288,6 +289,7 @@ class KexGSSGroup1:
             self.transport.gss_kex_used = True
             self.transport._activate_outbound()
         else:
+            m.name = 'KexGSSGroup1 MSG_KEXGSS_CONTINUE'
             m.add_byte(c_MSG_KEXGSS_CONTINUE)
             m.add_string(srv_token)
             self.transport._send_message(m)
@@ -367,7 +369,7 @@ class KexGSSGex:
         # (preferred_bits).  according to the spec, we shouldn't pull the
         # minimum up above 1024.
         self.gss_host = self.transport.gss_host
-        m = Message()
+        m = Message('MSG_KEXGSS_GROUPREQ')
         m.add_byte(c_MSG_KEXGSS_GROUPREQ)
         m.add_int(self.min_bits)
         m.add_int(self.preferred_bits)
@@ -456,7 +458,7 @@ class KexGSSGex:
             ),
         )
         self.g, self.p = pack.get_modulus(minbits, preferredbits, maxbits)
-        m = Message()
+        m = Message('MSG_KEXGSS_GROUP')
         m.add_byte(c_MSG_KEXGSS_GROUP)
         m.add_mpint(self.p)
         m.add_mpint(self.g)
@@ -484,7 +486,7 @@ class KexGSSGex:
         self._generate_x()
         # now compute e = g^x mod p
         self.e = pow(self.g, self.x, self.p)
-        m = Message()
+        m = Message('KexGSSGex MSG_KEXGSS_INIT')
         m.add_byte(c_MSG_KEXGSS_INIT)
         m.add_string(self.kexgss.ssh_init_sec_context(target=self.gss_host))
         m.add_mpint(self.e)
@@ -513,7 +515,7 @@ class KexGSSGex:
         key = self.transport.host_key.__str__()
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || min || n || max || p || g || e || f || K)  # noqa
-        hm = Message()
+        hm = Message('parse-kexgss-gex-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -534,11 +536,12 @@ class KexGSSGex:
         srv_token = self.kexgss.ssh_accept_sec_context(
             self.gss_host, client_token
         )
-        m = Message()
+        m = Message('')
         if self.kexgss._gss_srv_ctxt_status:
             mic_token = self.kexgss.ssh_get_mic(
                 self.transport.session_id, gss_kex=True
             )
+            m.name = 'KexGSSGex MSG_KEXGSS_COMPLETE'
             m.add_byte(c_MSG_KEXGSS_COMPLETE)
             m.add_mpint(self.f)
             m.add_string(mic_token)
@@ -551,6 +554,7 @@ class KexGSSGex:
             self.transport.gss_kex_used = True
             self.transport._activate_outbound()
         else:
+            m.name = 'KexGSSGex MSG_KEXGSS_CONTINUE'
             m.add_byte(c_MSG_KEXGSS_CONTINUE)
             m.add_string(srv_token)
             self.transport._send_message(m)
@@ -579,7 +583,7 @@ class KexGSSGex:
         """
         if not self.transport.server_mode:
             srv_token = m.get_string()
-            m = Message()
+            m = Message('KexGSSGex MSG_KEXGSS_CONTINUE')
             m.add_byte(c_MSG_KEXGSS_CONTINUE)
             m.add_string(
                 self.kexgss.ssh_init_sec_context(
@@ -613,7 +617,7 @@ class KexGSSGex:
         K = pow(self.f, self.x, self.p)
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || min || n || max || p || g || e || f || K)  # noqa
-        hm = Message()
+        hm = Message('KexGSSGex parse-kexgss-complete')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,

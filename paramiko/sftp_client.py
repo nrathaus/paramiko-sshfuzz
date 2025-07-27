@@ -301,7 +301,7 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
                 # handle
                 for num in nums:
                     t, pkt_data = self._read_packet()
-                    msg = Message(pkt_data)
+                    msg = Message('listdir-iter', pkt_data)
                     new_num = msg.get_int()
                     if num == new_num:
                         if t == CMD_STATUS:
@@ -860,7 +860,7 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
         # this method may be called from other threads (prefetch)
         self._lock.acquire()
         try:
-            msg = Message()
+            msg = Message('async-request')
             msg.add_int(self.request_number)
             for item in args:
                 if isinstance(item, int64):
@@ -887,7 +887,7 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
                 t, data = self._read_packet()
             except EOFError as e:
                 raise SSHException("Server connection dropped: {}".format(e))
-            msg = Message(data)
+            msg = Message('read-response', data)
             num = msg.get_int()
             self._lock.acquire()
             try:

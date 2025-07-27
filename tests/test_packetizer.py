@@ -54,7 +54,7 @@ class PacketizerTest(unittest.TestCase):
 
         # message has to be at least 16 bytes long, so we'll have at least one
         # block of data encrypted that contains zero random padding bytes
-        m = Message()
+        m = Message('')
         m.add_byte(byte_chr(100))
         m.add_int(100)
         m.add_int(1)
@@ -108,7 +108,7 @@ class PacketizerTest(unittest.TestCase):
 
         # message has to be at least 16 bytes long, so we'll have at least one
         # block of data encrypted that contains zero random padding bytes
-        m = Message()
+        m = Message('')
         m.add_byte(byte_chr(100))
         m.add_int(100)
         m.add_int(1)

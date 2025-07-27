@@ -1086,7 +1086,7 @@ class Transport(threading.Thread, ClosingContextManager):
             window_size = self._sanitize_window_size(window_size)
             max_packet_size = self._sanitize_packet_size(max_packet_size)
             chanid = self._next_channel()
-            m = Message()
+            m = Message('Transport MSG_CHANNEL_OPEN')
             m.add_byte(cMSG_CHANNEL_OPEN)
             m.add_string(kind)
             m.add_int(chanid)
@@ -1220,7 +1220,7 @@ class Transport(threading.Thread, ClosingContextManager):
             the number of random bytes to send in the payload of the ignored
             packet -- defaults to a random number from 10 to 41.
         """
-        m = Message()
+        m = Message('Transport MSG_IGNORE')
         m.add_byte(cMSG_IGNORE)
         if byte_count is None:
             byte_count = (byte_ord(os.urandom(1)) % 32) + 10
@@ -1289,7 +1289,7 @@ class Transport(threading.Thread, ClosingContextManager):
         """
         if wait:
             self.completion_event = threading.Event()
-        m = Message()
+        m = Message('Transport MSG_GLOBAL_REQUEST')
         m.add_byte(cMSG_GLOBAL_REQUEST)
         m.add_string(kind)
         m.add_boolean(wait)
@@ -1999,10 +1999,10 @@ class Transport(threading.Thread, ClosingContextManager):
         self._expected_packet = tuple(ptypes)
 
     def _verify_key(self, host_key, sig):
-        key = self._key_info[self.host_key_type](Message(host_key))
+        key = self._key_info[self.host_key_type](Message('Transport verify-key host-key', host_key))
         if key is None:
             raise SSHException("Unknown host key type")
-        if not key.verify_ssh_sig(self.H, Message(sig)):
+        if not key.verify_ssh_sig(self.H, Message('Transport verify-key sig', sig)):
             raise SSHException(
                 "Signature verification ({}) failed.".format(
                     self.host_key_type
@@ -2012,7 +2012,7 @@ class Transport(threading.Thread, ClosingContextManager):
 
     def _compute_key(self, id, nbytes):
         """id is 'A' - 'F' for the various keys used by ssh"""
-        m = Message()
+        m = Message('Transport compute-key')
         m.add_mpint(self.K)
         m.add_bytes(self.H)
         m.add_byte(b(id))
@@ -2031,7 +2031,7 @@ class Transport(threading.Thread, ClosingContextManager):
             setattr(self, "_logged_hash_selection", True)
         out = sofar = hash_algo(m.asbytes()).digest()
         while len(out) < nbytes:
-            m = Message()
+            m = Message('Transport compute-key')
             m.add_mpint(self.K)
             m.add_bytes(self.H)
             m.add_bytes(sofar)
@@ -2118,14 +2118,16 @@ class Transport(threading.Thread, ClosingContextManager):
             return None
         # WELP. We must be dealing with someone trying to do non-auth things
         # without being authed. Tell them off, based on message class.
-        reply = Message()
+        reply = Message('')
         # Global requests have no details, just failure.
         if ptype == MSG_GLOBAL_REQUEST:
+            reply.name = 'MSG_REQUEST_FAILURE'
             reply.add_byte(cMSG_REQUEST_FAILURE)
         # Channel opens let us reject w/ a specific type + message.
         elif ptype == MSG_CHANNEL_OPEN:
             kind = message.get_text()  # noqa
             chanid = message.get_int()
+            reply.name = 'MSG_CHANNEL_OPEN_FAILURE'
             reply.add_byte(cMSG_CHANNEL_OPEN_FAILURE)
             reply.add_int(chanid)
             reply.add_int(OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED)
@@ -2267,7 +2269,7 @@ class Transport(threading.Thread, ClosingContextManager):
                         )
                         self._log(WARNING, warning)
                         if ptype != MSG_UNIMPLEMENTED:
-                            msg = Message()
+                            msg = Message('MSG_UNIMPLEMENTED')
                             msg.add_byte(cMSG_UNIMPLEMENTED)
                             msg.add_int(m.seqno)
                             self._send_message(msg)
@@ -2446,7 +2448,7 @@ class Transport(threading.Thread, ClosingContextManager):
             which = "s" if self.server_mode else "c"
             kex_algos.append(f"kex-strict-{which}-v00@openssh.com")
 
-        m = Message()
+        m = Message('MSG_KEXINIT')
         m.add_byte(cMSG_KEXINIT)
         m.add_bytes(os.urandom(16))
         m.add_list(kex_algos)
@@ -2486,7 +2488,7 @@ class Transport(threading.Thread, ClosingContextManager):
 
     def _get_latest_kex_init(self):
         return self._really_parse_kex_init(
-            Message(self._latest_kex_init),
+            Message('get-latest-kex-init', self._latest_kex_init),
             ignore_first_byte=True,
         )
 
@@ -2785,7 +2787,7 @@ class Transport(threading.Thread, ClosingContextManager):
     def _activate_outbound(self):
         """switch on newly negotiated encryption parameters for
         outbound traffic"""
-        m = Message()
+        m = Message('MSG_NEWKEYS')
         m.add_byte(cMSG_NEWKEYS)
         self._send_message(m)
         # Reset outbound sequence number if strict mode.
@@ -2853,7 +2855,7 @@ class Transport(threading.Thread, ClosingContextManager):
             and self._remote_ext_info == "ext-info-c"
         ):
             extensions = {"server-sig-algs": ",".join(self.preferred_pubkeys)}
-            m = Message()
+            m = Message('MSG_EXT_INFO')
             m.add_byte(cMSG_EXT_INFO)
             m.add_int(len(extensions))
             for name, value in sorted(extensions.items()):
@@ -2950,11 +2952,13 @@ class Transport(threading.Thread, ClosingContextManager):
             extra = ok
             ok = True
         if want_reply:
-            msg = Message()
+            msg = Message('')
             if ok:
+                msg.name = 'MSG_REQUEST_SUCCESS'
                 msg.add_byte(cMSG_REQUEST_SUCCESS)
                 msg.add(*extra)
             else:
+                msg.name = 'MSG_REQUEST_FAILURE'
                 msg.add_byte(cMSG_REQUEST_FAILURE)
             self._send_message(msg)
 
@@ -3097,7 +3101,7 @@ class Transport(threading.Thread, ClosingContextManager):
                 )
                 reject = True
         if reject:
-            msg = Message()
+            msg = Message('MSG_CHANNEL_OPEN_FAILURE')
             msg.add_byte(cMSG_CHANNEL_OPEN_FAILURE)
             msg.add_int(chanid)
             msg.add_int(reason)
@@ -3120,7 +3124,7 @@ class Transport(threading.Thread, ClosingContextManager):
             )
         finally:
             self.lock.release()
-        m = Message()
+        m = Message('MSG_CHANNEL_OPEN_SUCCESS')
         m.add_byte(cMSG_CHANNEL_OPEN_SUCCESS)
         m.add_int(chanid)
         m.add_int(my_chanid)
@@ -3350,7 +3354,7 @@ class ServiceRequestingTransport(Transport):
         if self._service_userauth_accepted:
             return
         # Or request to do so, otherwise.
-        m = Message()
+        m = Message('MSG_SERVICE_REQUEST')
         m.add_byte(cMSG_SERVICE_REQUEST)
         m.add_string("ssh-userauth")
         self._log(DEBUG, "Sending MSG_SERVICE_REQUEST: ssh-userauth")

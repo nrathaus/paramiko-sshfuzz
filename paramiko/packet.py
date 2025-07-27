@@ -580,7 +580,7 @@ class Packetizer:
         if self.__compress_engine_in is not None:
             payload = self.__compress_engine_in(payload)
 
-        msg = Message(payload[1:])
+        msg = Message('read-message', payload[1:])
         msg.seqno = self.__sequence_number_in
         next_seq = (self.__sequence_number_in + 1) & xffffffff
         if next_seq == 0 and not self._initial_kex_done:

@@ -163,7 +163,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake "reply"
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -184,7 +184,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_group1._MSG_KEXDH_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(69)
         msg.rewind()
         kex.parse_next(paramiko.kex_group1._MSG_KEXDH_INIT, msg)
@@ -206,7 +206,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_GROUP,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(FakeModulusPack.P)
         msg.add_mpint(FakeModulusPack.G)
         msg.rewind()
@@ -217,7 +217,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_REPLY,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -240,7 +240,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_GROUP,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(FakeModulusPack.P)
         msg.add_mpint(FakeModulusPack.G)
         msg.rewind()
@@ -251,7 +251,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_REPLY,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -276,7 +276,7 @@ class KexTest(unittest.TestCase):
             transport._expect,
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_int(1024)
         msg.add_int(2048)
         msg.add_int(4096)
@@ -288,7 +288,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(12345)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_INIT, msg)
@@ -313,7 +313,7 @@ class KexTest(unittest.TestCase):
             transport._expect,
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_int(2048)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_REQUEST_OLD, msg)
@@ -323,7 +323,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(12345)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_INIT, msg)
@@ -346,7 +346,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_GROUP,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(FakeModulusPack.P)
         msg.add_mpint(FakeModulusPack.G)
         msg.rewind()
@@ -357,7 +357,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_REPLY,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -380,7 +380,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_GROUP,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(FakeModulusPack.P)
         msg.add_mpint(FakeModulusPack.G)
         msg.rewind()
@@ -391,7 +391,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_REPLY,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -416,7 +416,7 @@ class KexTest(unittest.TestCase):
             transport._expect,
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_int(1024)
         msg.add_int(2048)
         msg.add_int(4096)
@@ -428,7 +428,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(12345)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_INIT, msg)
@@ -453,7 +453,7 @@ class KexTest(unittest.TestCase):
             transport._expect,
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_int(2048)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_REQUEST_OLD, msg)
@@ -463,7 +463,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_gex._MSG_KEXDH_GEX_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(12345)
         msg.rewind()
         kex.parse_next(paramiko.kex_gex._MSG_KEXDH_GEX_INIT, msg)
@@ -486,7 +486,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake reply
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         Q_S = unhexlify(
             "043ae159594ba062efa121480e9ef136203fa9ec6b6e1f8723a321c16e62b945f573f3b822258cbcd094b9fa1c125cbfe5f043280893e66863cc0cb4dccbe70210"  # noqa
@@ -512,7 +512,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake init
-        msg = Message()
+        msg = Message('')
         Q_C = unhexlify(
             "043ae159594ba062efa121480e9ef136203fa9ec6b6e1f8723a321c16e62b945f573f3b822258cbcd094b9fa1c125cbfe5f043280893e66863cc0cb4dccbe70210"  # noqa
         )
@@ -536,7 +536,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake "reply"
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -558,7 +558,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_group1._MSG_KEXDH_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(69)
         msg.rewind()
         kex.parse_next(paramiko.kex_group1._MSG_KEXDH_INIT, msg)
@@ -582,7 +582,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake "reply"
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         msg.add_mpint(69)
         msg.add_string("fake-sig")
@@ -604,7 +604,7 @@ class KexTest(unittest.TestCase):
             (paramiko.kex_group1._MSG_KEXDH_INIT,), transport._expect
         )
 
-        msg = Message()
+        msg = Message('')
         msg.add_mpint(69)
         msg.rewind()
         kex.parse_next(paramiko.kex_group1._MSG_KEXDH_INIT, msg)
@@ -628,7 +628,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake reply
-        msg = Message()
+        msg = Message('')
         msg.add_string("fake-host-key")
         Q_S = unhexlify(
             "8d13a119452382a1ada8eea4c979f3e63ad3f0c7366786d6c5b54b87219bae49"
@@ -655,7 +655,7 @@ class KexTest(unittest.TestCase):
         )
 
         # fake init
-        msg = Message()
+        msg = Message('')
         Q_C = unhexlify(
             "8d13a119452382a1ada8eea4c979f3e63ad3f0c7366786d6c5b54b87219bae49"
         )

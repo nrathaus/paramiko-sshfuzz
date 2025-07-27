@@ -104,7 +104,7 @@ class AgentSSH:
         msg = asbytes(msg)
         self._conn.send(struct.pack(">I", len(msg)) + msg)
         data = self._read_all(4)
-        msg = Message(self._read_all(struct.unpack(">I", data)[0]))
+        msg = Message('_send_message', self._read_all(struct.unpack(">I", data)[0]))
         return ord(msg.get_byte()), msg
 
     def _read_all(self, wanted):
@@ -439,7 +439,7 @@ class AgentKey(PKey):
         self.agent = agent
         self.blob = blob
         self.comment = comment
-        msg = Message(blob)
+        msg = Message('AgentKey', blob)
         self.name = msg.get_text()
         self._logger = get_logger(__file__)
         self.inner_key = None
@@ -482,7 +482,7 @@ class AgentKey(PKey):
         return self.inner_key._fields if self.inner_key else fallback
 
     def sign_ssh_data(self, data, algorithm=None):
-        msg = Message()
+        msg = Message('SSH2_AGENTC_SIGN_REQUEST')
         msg.add_byte(cSSH2_AGENTC_SIGN_REQUEST)
         # NOTE: this used to be just self.blob, which is not entirely right for
         # RSA-CERT 'keys' - those end up always degrading to ssh-rsa type

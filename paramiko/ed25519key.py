@@ -47,7 +47,7 @@ class Ed25519Key(PKey):
         self.public_blob = None
         verifying_key = signing_key = None
         if msg is None and data is not None:
-            msg = Message(data)
+            msg = Message('Ed25519Key', data)
         if msg is not None:
             self._check_type_and_load_cert(
                 msg=msg,
@@ -79,7 +79,7 @@ class Ed25519Key(PKey):
         # https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.key
         # The description isn't totally complete, and I had to refer to the
         # source for a full implementation.
-        message = Message(data)
+        message = Message('parse-signing-key-data', data)
         if message.get_bytes(len(OPENSSH_AUTH_MAGIC)) != OPENSSH_AUTH_MAGIC:
             raise SSHException("Invalid key")
 
@@ -98,7 +98,7 @@ class Ed25519Key(PKey):
                 raise PasswordRequiredException(
                     "Private key file is encrypted"
                 )
-            kdf = Message(kdfoptions)
+            kdf = Message('bcrypt', kdfoptions)
             bcrypt_salt = kdf.get_binary()
             bcrypt_rounds = kdf.get_int()
         else:
@@ -109,7 +109,7 @@ class Ed25519Key(PKey):
 
         public_keys = []
         for _ in range(num_keys):
-            pubkey = Message(message.get_binary())
+            pubkey = Message('pubkey', message.get_binary())
             if pubkey.get_text() != self.name:
                 raise SSHException("Invalid key")
             public_keys.append(pubkey.get_binary())
@@ -137,7 +137,7 @@ class Ed25519Key(PKey):
                 decryptor.update(private_ciphertext) + decryptor.finalize()
             )
 
-        message = Message(_unpad_openssh(private_data))
+        message = Message('unpad-openssh', _unpad_openssh(private_data))
         if message.get_int() != message.get_int():
             raise SSHException("Invalid key")
 
@@ -171,7 +171,7 @@ class Ed25519Key(PKey):
             v = self._signing_key.verify_key
         else:
             v = self._verifying_key
-        m = Message()
+        m = Message('Ed25519Key asbytes')
         m.add_string(self.name)
         m.add_string(v.encode())
         return m.asbytes()
@@ -195,7 +195,7 @@ class Ed25519Key(PKey):
         return self._signing_key is not None
 
     def sign_ssh_data(self, data, algorithm=None):
-        m = Message()
+        m = Message('sign-ssh-da')
         m.add_string(self.name)
         m.add_string(self._signing_key.sign(data).signature)
         return m

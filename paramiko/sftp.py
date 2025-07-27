@@ -139,7 +139,7 @@ class BaseSFTP:
     # ...internals...
 
     def _send_version(self):
-        m = Message()
+        m = Message('BaseSFTP send-version')
         m.add_int(_VERSION)
         self._send_packet(CMD_INIT, m)
         t, data = self._read_packet()
@@ -159,7 +159,7 @@ class BaseSFTP:
         version = struct.unpack(">I", data[:4])[0]
         # advertise that we support "check-file"
         extension_pairs = ["check-file", "md5,sha1"]
-        msg = Message()
+        msg = Message('BaseSFTP send-server-version')
         msg.add_int(_VERSION)
         msg.add(*extension_pairs)
         self._send_packet(CMD_VERSION, msg)

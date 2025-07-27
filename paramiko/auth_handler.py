@@ -185,13 +185,13 @@ class AuthHandler:
     # ...internals...
 
     def _request_auth(self):
-        m = Message()
+        m = Message('MSG_SERVICE_REQUEST')
         m.add_byte(cMSG_SERVICE_REQUEST)
         m.add_string("ssh-userauth")
         self.transport._send_message(m)
 
     def _disconnect_service_not_available(self):
-        m = Message()
+        m = Message('MSG_DISCONNECT')
         m.add_byte(cMSG_DISCONNECT)
         m.add_int(DISCONNECT_SERVICE_NOT_AVAILABLE)
         m.add_string("Service not available")
@@ -200,7 +200,7 @@ class AuthHandler:
         self.transport.close()
 
     def _disconnect_no_more_auth(self):
-        m = Message()
+        m = Message('MSG_DISCONNECT')
         m.add_byte(cMSG_DISCONNECT)
         m.add_int(DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE)
         m.add_string("No more auth methods available")
@@ -221,7 +221,7 @@ class AuthHandler:
             return key.get_name(), key
 
     def _get_session_blob(self, key, service, username, algorithm):
-        m = Message()
+        m = Message('MSG_USERAUTH_REQUEST get-session')
         m.add_string(self.transport.session_id)
         m.add_byte(cMSG_USERAUTH_REQUEST)
         m.add_string(username)
@@ -267,13 +267,13 @@ class AuthHandler:
         service = m.get_text()
         if self.transport.server_mode and (service == "ssh-userauth"):
             # accepted
-            m = Message()
+            m = Message('MSG_SERVICE_ACCEPT')
             m.add_byte(cMSG_SERVICE_ACCEPT)
             m.add_string(service)
             self.transport._send_message(m)
             banner, language = self.transport.server_object.get_banner()
             if banner:
-                m = Message()
+                m = Message('MSG_USERAUTH_BANNER')
                 m.add_byte(cMSG_USERAUTH_BANNER)
                 m.add_string(banner)
                 m.add_string(language)
@@ -291,7 +291,7 @@ class AuthHandler:
             )
             self._log(INFO, err.format(algorithm))
             return None
-        return self.transport._key_info[algorithm](Message(keyblob))
+        return self.transport._key_info[algorithm](Message('_generate_key_from_request', keyblob))
 
     def _choose_fallback_pubkey_algorithm(self, key_type, my_algos):
         # Fallback: first one in our (possibly tweaked by caller) list
@@ -380,7 +380,7 @@ class AuthHandler:
         service = m.get_text()
         if service == "ssh-userauth":
             self._log(DEBUG, "userauth is OK")
-            m = Message()
+            m = Message('MSG_USERAUTH_REQUEST ssh-userauth')
             m.add_byte(cMSG_USERAUTH_REQUEST)
             m.add_string(self.username)
             m.add_string("ssh-connection")
@@ -420,7 +420,7 @@ class AuthHandler:
                     # the Kerberos V5 OID, so the server can only respond with
                     # this OID.
                     mech = m.get_string()
-                    m = Message()
+                    m = Message('MSG_USERAUTH_GSSAPI_TOKEN ssh-init')
                     m.add_byte(cMSG_USERAUTH_GSSAPI_TOKEN)
                     try:
                         m.add_string(
@@ -450,7 +450,7 @@ class AuthHandler:
                             if next_token is None:
                                 break
                             else:
-                                m = Message()
+                                m = Message('MSG_USERAUTH_GSSAPI_TOKEN next-token')
                                 m.add_byte(cMSG_USERAUTH_GSSAPI_TOKEN)
                                 m.add_string(next_token)
                                 self.transport.send_message(m)
@@ -458,7 +458,7 @@ class AuthHandler:
                         raise SSHException(
                             "Received Package: {}".format(MSG_NAMES[ptype])
                         )
-                    m = Message()
+                    m = Message('MSG_USERAUTH_GSSAPI_MIC')
                     m.add_byte(cMSG_USERAUTH_GSSAPI_MIC)
                     # send the MIC to the server
                     m.add_string(sshgss.ssh_get_mic(self.transport.session_id))
@@ -511,13 +511,15 @@ Error Message: {}
 
     def _send_auth_result(self, username, method, result):
         # okay, send result
-        m = Message()
+        m = Message('')
         if result == AUTH_SUCCESSFUL:
             self._log(INFO, "Auth granted ({}).".format(method))
+            m.name = 'MSG_USERAUTH_SUCCESS'
             m.add_byte(cMSG_USERAUTH_SUCCESS)
             self.authenticated = True
         else:
             self._log(INFO, "Auth rejected ({}).".format(method))
+            m.name = 'MSG_USERAUTH_FAILURE'
             m.add_byte(cMSG_USERAUTH_FAILURE)
             m.add_string(
                 self.transport.server_object.get_allowed_auths(username)
@@ -535,7 +537,7 @@ Error Message: {}
 
     def _interactive_query(self, q):
         # make interactive query instead of response
-        m = Message()
+        m = Message('MSG_USERAUTH_INFO_REQUEST')
         m.add_byte(cMSG_USERAUTH_INFO_REQUEST)
         m.add_string(q.name)
         m.add_string(q.instructions)
@@ -549,7 +551,7 @@ Error Message: {}
     def _parse_userauth_request(self, m):
         if not self.transport.server_mode:
             # er, uh... what?
-            m = Message()
+            m = Message('MSG_USERAUTH_FAILURE')
             m.add_byte(cMSG_USERAUTH_FAILURE)
             m.add_string("none")
             m.add_boolean(False)
@@ -637,13 +639,13 @@ Error Message: {}
                 if not sig_attached:
                     # client wants to know if this key is acceptable, before it
                     # signs anything...  send special "ok" message
-                    m = Message()
+                    m = Message('MSG_USERAUTH_PK_OK')
                     m.add_byte(cMSG_USERAUTH_PK_OK)
                     m.add_string(algorithm)
                     m.add_string(keyblob)
                     self.transport._send_message(m)
                     return
-                sig = Message(m.get_binary())
+                sig = Message('get-session-blob', m.get_binary())
                 blob = self._get_session_blob(
                     key, service, username, algorithm
                 )
@@ -686,7 +688,7 @@ Error Message: {}
             supported_mech = sshgss.ssh_gss_oids("server")
             # RFC 4462 says we are not required to implement GSS-API error
             # messages. See section 3.8 in http://www.ietf.org/rfc/rfc4462.txt
-            m = Message()
+            m = Message('MSG_USERAUTH_GSSAPI_RESPONSE')
             m.add_byte(cMSG_USERAUTH_GSSAPI_RESPONSE)
             m.add_bytes(supported_mech)
             self.transport.auth_handler = GssapiWithMicAuthHandler(
@@ -782,7 +784,7 @@ Error Message: {}
             title, instructions, prompt_list
         )
 
-        m = Message()
+        m = Message('MSG_USERAUTH_INFO_RESPONSE')
         m.add_byte(cMSG_USERAUTH_INFO_RESPONSE)
         m.add_int(len(response_list))
         for r in response_list:
@@ -909,7 +911,7 @@ class GssapiWithMicAuthHandler:
             self._send_auth_result(self.auth_username, self.method, result)
             raise
         if token is not None:
-            m = Message()
+            m = Message('MSG_USERAUTH_GSSAPI_TOKEN')
             m.add_byte(cMSG_USERAUTH_GSSAPI_TOKEN)
             m.add_string(token)
             self.transport._expected_packet = (
@@ -999,7 +1001,7 @@ class AuthOnlyHandler(AuthHandler):
         self.auth_method = method
         self.username = username
         # Generic userauth request fields
-        m = Message()
+        m = Message('MSG_USERAUTH_REQUEST')
         m.add_byte(cMSG_USERAUTH_REQUEST)
         m.add_string(username)
         m.add_string("ssh-connection")

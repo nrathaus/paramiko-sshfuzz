@@ -38,7 +38,7 @@ class AgentKey_:
 
         def sets_attributes_and_parses_blob(self):
             agent = Mock()
-            blob = Message()
+            blob = Message('AgentKey_ sets-attributes-and-parses-blob')
             blob.add_string("bad-type")
             key = AgentKey(agent=agent, blob=bytes(blob))
             assert key.agent is agent
@@ -49,7 +49,7 @@ class AgentKey_:
             assert key.inner_key is None  # no 'bad-type' algorithm
 
         def comment_optional(self):
-            blob = Message()
+            blob = Message('AgentKey_ comment-optional')
             blob.add_string("bad-type")
             key = AgentKey(agent=Mock(), blob=bytes(blob), comment="hi!")
             assert key.comment == "hi!"
@@ -117,7 +117,7 @@ class AgentKey_:
                 # The thing we actually care most about, we're not testing
                 # ssh-agent itself here
                 self._sent_message = msg
-                sig = Message()
+                sig = Message('FakeAgent')
                 sig.add_string("lol")
                 sig.rewind()
                 return SSH2_AGENT_SIGN_RESPONSE, sig

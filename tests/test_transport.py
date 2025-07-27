@@ -765,7 +765,7 @@ class TransportTest(unittest.TestCase):
             if self.local_kex_init is None:  # Remote side sent KEXINIT
                 # Simulate in-transit MSG_CHANNEL_WINDOW_ADJUST by sending it
                 # before responding to the incoming MSG_KEXINIT.
-                m2 = Message()
+                m2 = Message('')
                 m2.add_byte(cMSG_CHANNEL_WINDOW_ADJUST)
                 m2.add_int(chan.remote_chanid)
                 m2.add_int(1)  # bytes to add
@@ -1000,7 +1000,7 @@ class TransportTest(unittest.TestCase):
         if server_is_sender:
             sender, recipient = self.ts, self.tc
         recipient._send_message = Mock()
-        msg = Message()
+        msg = Message('')
         msg.add_byte(cMSG_UNIMPLEMENTED)
         sender._send_message(msg)
         # TODO: I hate this but I literally don't see a good way to know when
@@ -1023,7 +1023,7 @@ class TransportTest(unittest.TestCase):
         # NOTE: this isn't 100% realistic (most of these message types would
         # have actual other fields in 'em) but it suffices to test the level of
         # message dispatch we're interested in here.
-        msg = Message()
+        msg = Message('')
         # TODO: really not liking the whole cMSG_XXX vs MSG_XXX duality right
         # now, esp since the former is almost always just byte_chr(the
         # latter)...but since that's the case...
@@ -1344,7 +1344,7 @@ class TestStrictKex:
                 self._parse_kex_init(m)
                 # Here, we would normally kick over to kex_engine, but instead
                 # we want the server to send the OOO message.
-                m = Message()
+                m = Message('')
                 m.add_byte(byte_chr(ptype))
                 # rest of packet unnecessary...
                 self._send_message(m)

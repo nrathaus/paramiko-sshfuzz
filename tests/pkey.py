@@ -131,7 +131,7 @@ class PKey_:
             assert key.public_blob is not None
             assert key.public_blob.key_type == "ssh-rsa-cert-v01@openssh.com"
             assert key.public_blob.comment == "test_rsa.key.pub"
-            msg = Message(key.public_blob.key_blob)
+            msg = Message('PKey_ rsa-public-cert-blobs', key.public_blob.key_blob)
             # cert type
             assert msg.get_text() == "ssh-rsa-cert-v01@openssh.com"
             # nonce

@@ -75,13 +75,15 @@ class KexGex:
         # request a bit range: we accept (min_bits) to (max_bits), but prefer
         # (preferred_bits).  according to the spec, we shouldn't pull the
         # minimum up above 1024.
-        m = Message()
+        m = Message('')
         if _test_old_style:
             # only used for unit tests: we shouldn't ever send this
+            m.name = 'MSG_KEXDH_GEX_REQUEST_OLD'
             m.add_byte(c_MSG_KEXDH_GEX_REQUEST_OLD)
             m.add_int(self.preferred_bits)
             self.old_style = True
         else:
+            m.name = 'MSG_KEXDH_GEX_REQUEST'
             m.add_byte(c_MSG_KEXDH_GEX_REQUEST)
             m.add_int(self.min_bits)
             m.add_int(self.preferred_bits)
@@ -154,7 +156,7 @@ class KexGex:
             ),
         )
         self.g, self.p = pack.get_modulus(minbits, preferredbits, maxbits)
-        m = Message()
+        m = Message('MSG_KEXDH_GEX_GROUP parse-kexdh-gex-request')
         m.add_byte(c_MSG_KEXDH_GEX_GROUP)
         m.add_mpint(self.p)
         m.add_mpint(self.g)
@@ -180,7 +182,7 @@ class KexGex:
         self.g, self.p = pack.get_modulus(
             self.min_bits, self.preferred_bits, self.max_bits
         )
-        m = Message()
+        m = Message('MSG_KEXDH_GEX_GROUP - parse-kexdh-gex-request-old')
         m.add_byte(c_MSG_KEXDH_GEX_GROUP)
         m.add_mpint(self.p)
         m.add_mpint(self.g)
@@ -202,7 +204,7 @@ class KexGex:
         self._generate_x()
         # now compute e = g^x mod p
         self.e = pow(self.g, self.x, self.p)
-        m = Message()
+        m = Message('KexGex MSG_KEXDH_GEX_INIT')
         m.add_byte(c_MSG_KEXDH_GEX_INIT)
         m.add_mpint(self.e)
         self.transport._send_message(m)
@@ -218,7 +220,7 @@ class KexGex:
         key = self.transport.get_server_key().asbytes()
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || min || n || max || p || g || e || f || K)  # noqa
-        hm = Message()
+        hm = Message('KexGex parse-kexdh-gex-init')
         hm.add(
             self.transport.remote_version,
             self.transport.local_version,
@@ -243,7 +245,7 @@ class KexGex:
             H, self.transport.host_key_type
         )
         # send reply
-        m = Message()
+        m = Message('MSG_KEXDH_GEX_REPLY')
         m.add_byte(c_MSG_KEXDH_GEX_REPLY)
         m.add_string(key)
         m.add_mpint(self.f)
@@ -260,7 +262,7 @@ class KexGex:
         K = pow(self.f, self.x, self.p)
         # okay, build up the hash H of
         # (V_C || V_S || I_C || I_S || K_S || min || n || max || p || g || e || f || K)  # noqa
-        hm = Message()
+        hm = Message('KexGex parse-kexdh-gex-reply')
         hm.add(
             self.transport.local_version,
             self.transport.remote_version,
