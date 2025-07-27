@@ -54,6 +54,7 @@ class Message:
             the byte stream to use as the message content (passed in only when
             decomposing a message).
         """
+        self.name = name
         if content is not None:
             self.packet = BytesIO(content)
         else:
