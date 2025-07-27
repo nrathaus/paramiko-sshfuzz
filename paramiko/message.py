@@ -58,6 +58,7 @@ class Message:
             decomposing a message).
         """
         self.name = name
+        self.fields = []
         if content is not None:
             self.packet = BytesIO(content)
         else:
@@ -272,6 +273,7 @@ class Message:
         self.packet.write(struct.pack(">Q", n))
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_mpint(self, z):
         """
         Add a long int to the stream, encoded as an infinite-precision
