@@ -12,6 +12,8 @@ import struct
 import logging
 from io import BytesIO
 
+from hexdump import hexdump
+
 # logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
 
@@ -32,6 +34,7 @@ max_byte = b"\xff"
 
 messages_prototypes = {}
 
+
 def add_bytes(self, b):
     """
     Write bytes to the stream, without any formatting.
@@ -39,7 +42,7 @@ def add_bytes(self, b):
     :param str b: bytes to add
     """
 
-    self.fields.append(['add_bytes', b])
+    self.fields.append(["add_bytes", b])
     self.packet.write(b)
     return self
 
@@ -51,7 +54,7 @@ def add_byte(self, b):
     :param str b: byte to add
     """
 
-    self.fields.append(['add_byte', b])
+    self.fields.append(["add_byte", b])
     self.packet.write(b)
     return self
 
@@ -63,7 +66,7 @@ def add_boolean(self, b):
     :param bool b: boolean value to add
     """
 
-    self.fields.append(['add_boolean', b])
+    self.fields.append(["add_boolean", b])
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -80,7 +83,7 @@ def add_boolean(self, b):
     return self
 
 
-def add_int(self, n, direct = True):
+def add_int(self, n, direct=True):
     """
     Add an integer to the stream.
 
@@ -88,7 +91,7 @@ def add_int(self, n, direct = True):
     """
 
     if direct:
-        self.fields.append(['add_int', n])
+        self.fields.append(["add_int", n])
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -113,7 +116,7 @@ def add_adaptive_int(self, n):
     :param int n: integer to add
     """
 
-    self.fields.append(['add_adaptive_int', n])
+    self.fields.append(["add_adaptive_int", n])
     if n >= Message.big_int:
         self.packet.write(max_byte)
         self.add_string(util.deflate_long(n))
@@ -130,7 +133,7 @@ def add_int64(self, n):
     :param long n: long int to add
     """
 
-    self.fields.append(['add_int64', n])
+    self.fields.append(["add_int64", n])
     self.packet.write(struct.pack(">Q", n))
     return self
 
@@ -152,7 +155,7 @@ def asbytes(s):
     return s
 
 
-def add_string(self, s, direct = True):
+def add_string(self, s, direct=True):
     """
     Add a string to the stream.
 
@@ -160,7 +163,7 @@ def add_string(self, s, direct = True):
     """
 
     if direct:
-        self.fields.append(['add_string', s])
+        self.fields.append(["add_string", s])
 
     s = asbytes(s)
     if False and random.choice([False] * 7 + [True]):
@@ -173,6 +176,18 @@ def add_string(self, s, direct = True):
     return self
 
 
+def add_mpint(self, z):
+    """
+    Add a long int to the stream, encoded as an infinite-precision
+    integer.  This method only works on positive numbers.
+
+    :param int z: long int to add
+    """
+    self.fields.append(["add_mpint", z])
+    self.add_string(util.deflate_long(z), False)
+    return self
+
+
 def add_list(self, l):  # noqa: E741
     """
     Add a list of strings to the stream.  They are encoded identically to
@@ -181,8 +196,10 @@ def add_list(self, l):  # noqa: E741
 
     :param l: list of strings to add
     """
+    self.fields.append(["add_list", l])
     self.add_string(",".join(l), False)
     return self
+
 
 def _send_message(self, data):
     """
@@ -190,49 +207,66 @@ def _send_message(self, data):
       and use the fields in either default state or in their fuzzed state
     """
 
-    messages_prototype = None
     if data.name not in messages_prototypes:
         # If we haven't seen this prototype before, add it to the list with the fields at
         #   their default state
         messages_prototypes[data.name] = {
-            'current': -1, # No field is being fuzzed
-            'pos': 0, # The field being fuzzed position (0 being default)
-            'fields': data.fields.copy()
+            "current": -1,  # No field is being fuzzed
+            "pos": 0,  # The field being fuzzed position (0 being default)
+            "fields": data.fields.copy(),
         }
     else:
-        # If we have seen this prototype before, move the fields to the next step
-        pass
+        # If we have seen this prototype before, make sure that the values (default) still match
+        stored_fields = messages_prototypes[data.name]["fields"]
+        if len(data.fields) != len(stored_fields):
+            raise ValueError("This is worrying... there is a mismatch in the len")
+
+        for idx, field in enumerate(data.fields):
+            stored_field = stored_fields[idx]
+            if stored_field[0] != field[0]:
+                raise ValueError("This is worrying... there is a func mismatch")
+
+            if stored_field[1] != field[1]:
+                stored_field[1] = field[1]
 
     messages_prototype = messages_prototypes[data.name]
 
-    # # Init the packet
+    print(f"{data.name}: {len(messages_prototype['fields'])=}")
+
+    before = hexdump(data.packet.getvalue(), result="return")
+
     data.packet = BytesIO()
-    for field in messages_prototype['fields']:
+    for field in messages_prototype["fields"]:
         # field has two values at position:
         #  0 - func
         #  1 - default value
         func_name = field[0]
         default_value = field[1]
-        if func_name == 'add_byte':
+        if func_name == "add_byte":
             add_byte(data, default_value)
             continue
-        if func_name == 'add_bytes':
+        if func_name == "add_bytes":
             add_byte(data, default_value)
             continue
-        if func_name == 'add_string':
+        if func_name == "add_string":
             add_string(data, default_value)
             continue
-        if func_name == 'add_int':
+        if func_name == "add_int":
             add_int(data, default_value)
             continue
-        if func_name == 'add_boolean':
+        if func_name == "add_boolean":
             add_boolean(data, default_value)
             continue
 
         # If we fall through the cracks, just write the default value
         raise ValueError("Forgot to define func")
-    
+
+    after = hexdump(data.packet.getvalue(), result="return")
+    if after != before:
+        pass
+
     self.packetizer.send_message(data)
+
 
 FuzzMaster = paramiko.fuzz.FuzzMaster
 FuzzMaster.MUTATION_PER_RUN = 10000
@@ -241,6 +275,7 @@ FuzzMaster.add_fuzzdef("add_bytes", add_bytes)
 FuzzMaster.add_fuzzdef("add_list", add_list)
 FuzzMaster.add_fuzzdef("add_string", add_string)
 FuzzMaster.add_fuzzdef("add_int", add_int)
+FuzzMaster.add_fuzzdef("add_mpint", add_mpint)
 FuzzMaster.add_fuzzdef("add_boolean", add_boolean)
 FuzzMaster.add_fuzzdef("add_adaptive_int", add_adaptive_int)
 FuzzMaster.add_fuzzdef("add_int64", add_int64)
@@ -281,12 +316,19 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 for i in range(1000):
     try:
         client.connect(
-            hostname=hostname, port=port, username=username, password=password
+            hostname=hostname,
+            port=port,
+            username=username,
+            password=password,
+            # Prevent getting hung on anything
+            timeout=1,
+            banner_timeout=1,
+            channel_timeout=1,
+            auth_timeout=1,
         )
         _, sout, _ = client.exec_command("whoami")
         print(sout.read())
-        _, sout, _ = client.exec_command("whoami")
-        print(sout.read())
+        print()
         client.invoke_shell()
         client.open_sftp()
         transport = client.get_transport()
