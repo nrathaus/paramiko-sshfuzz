@@ -50,27 +50,31 @@ def add_bytes(self, b, field=None):
     :param str b: bytes to add
     """
 
-    self.fields.append(
-        {"func": "add_bytes", "default": b, "done": False, "max": 5, "pos": 0}
-    )
+    if field is None:
+        self.fields.append(
+            {"func": "add_bytes", "default": b, "done": False, "max": 5, "pos": 0}
+        )
+
     new_b = b
     if field is not None and field["pos"] > 0:
         # Send non-default
         if field["pos"] == 1:
             # Send all 0x00
             new_b = bytes([0] * len(b))
-        if field["pos"] == 2:
+        elif field["pos"] == 2:
             # Send all 0xFF
             new_b = bytes([0xFF] * len(b))
-        if field["pos"] == 3:
+        elif field["pos"] == 3:
             # Send nothing
             new_b = bytes(0)
-        if field["pos"] == 4:
+        elif field["pos"] == 4:
             # Send len-1
             new_b = b[0:-1]
-        if field["pos"] == 5:
+        elif field["pos"] == 5:
             # Send len+1
             new_b = b + b"\x00"
+        else:
+            raise ValueError("Incorrect 'max' value")
 
     self.packet.write(new_b)
     return self
@@ -85,7 +89,7 @@ def add_byte(self, b, field=None):
 
     if field is None:
         self.fields.append(
-            {"func": "add_byte", "default": b, "done": False, "max": 5, "pos": 0}
+            {"func": "add_byte", "default": b, "done": False, "max": 4, "pos": 0}
         )
 
     new_b = b
@@ -117,14 +121,20 @@ def add_boolean(self, b, field=None):
     :param bool b: boolean value to add
     """
 
-    self.fields.append({"func": "add_boolean", "default": b, "done": False})
+    if field is None:
+        self.fields.append(
+            {"func": "add_boolean", "default": b, "done": False, "max": 1, "pos": 0}
+        )
 
-    # Disable randomization
-    if False and random.choice([False] * 7 + [True]):
-        # print(f"Fuzzing add_boolean: {b}")
-        b = random.choice(range(2, 0xFF))
-        # print(f"Now: {b}")
-        self.packet.write(bytes(b))
+    if field is not None and field["pos"] > 0:
+        if field["pos"] == 1:
+            # Flip the boolean
+            if b:
+                self.packet.write(zero_byte)
+            else:
+                self.packet.write(one_byte)
+        else:
+            raise ValueError("Incorrect 'max' value")
     else:
         if b:
             self.packet.write(one_byte)
@@ -136,26 +146,34 @@ def add_boolean(self, b, field=None):
 
 def add_int(self, n, field=None, direct=True):
     """
-    Add an integer to the stream.
+    Add an !unsigned! integer to the stream.
 
     :param int n: integer to add
     :param bool direct: whether the func is called directly or from another add_
     """
 
-    if direct:
-        self.fields.append({"func": "add_int", "default": n, "done": False})
+    if field is None and direct:
+        self.fields.append(
+            {"func": "add_int", "default": n, "done": False, "max": 4, "pos": 0}
+        )
 
-    # Disable randomization
-    if False and random.choice([False] * 7 + [True]):
-        # print(f"Fuzzing add_int: {n}")
-        n = random.choice([0, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000])
-        # print(f"Now: {n}")
+    if field is not None and field["pos"] > 0:
+        if field["pos"] == 1:
+            n = 0
+        elif field["pos"] == 2:
+            n = 0xFFFFFFFF
+        elif field["pos"] == 3:
+            n = 0x7FFFFFFF
+        elif field["pos"] == 4:
+            n = 0x80000000
+        else:
+            raise ValueError("Incorrect 'max' value")
 
     new_n = 0
     try:
         new_n = struct.pack(">I", n)
     except Exception as exception:
-        print(f"Unable to encode 'n' into int, exception: {exception}")
+        print(f"add_int - Unable to encode 'n' into int, exception: {exception}")
 
     self.packet.write(new_n)
     return self
@@ -168,7 +186,9 @@ def add_adaptive_int(self, n, field=None):
     :param int n: integer to add
     """
 
-    self.fields.append({"func": "add_adaptive_int", "default": n, "done": False})
+    if field is None:
+        self.fields.append({"func": "add_adaptive_int", "default": n, "done": False})
+
     if n >= Message.big_int:
         self.packet.write(max_byte)
         self.add_string(util.deflate_long(n), field, direct=False)
@@ -225,7 +245,11 @@ def add_string(self, s, field=None, direct=True):
     if field is not None and field["pos"] > 0:
         if field["pos"] == 1:
             # Add len-1
-            self.add_int(len(s) - 1, field=None, direct=False)
+            new_len = len(s) - 1
+            if new_len < 0:
+                # add_int is "">I" - unsigned int
+                new_len = 0
+            self.add_int(new_len, field=None, direct=False)
         elif field["pos"] == 2:
             # Add len+1
             self.add_int(len(s) + 1, field=None, direct=False)
@@ -234,7 +258,7 @@ def add_string(self, s, field=None, direct=True):
             self.add_int(0, field=None, direct=False)
         elif field["pos"] == 4:
             # Make string way longer
-            new_s = asbytes(bytes([0x41] * 256))
+            new_s = asbytes(bytes([0x41] * 65535))
             self.add_int(len(new_s), field=None, direct=False)
         else:
             raise ValueError("Incorrect 'max'")
@@ -328,7 +352,8 @@ def _send_message(self, data=None):
                 # We need to move it one pos forward and check if it reached
                 #  the max
                 if "max" not in stored_field:
-                    raise ValueError("A 'max' value should be given for a field")
+                    msg = f"A 'max' value should be given for a {stored_field=}"
+                    raise ValueError(msg)
 
                 if "pos" not in stored_field:
                     # pos 0 is the default value
@@ -336,13 +361,13 @@ def _send_message(self, data=None):
                     stored_field["active"] = True
                     break
 
+                stored_field["pos"] += 1
                 if stored_field["pos"] > stored_field["max"]:
                     stored_field["pos"] = 0
                     stored_field["active"] = False
                     stored_field["done"] = True
                     continue
 
-                stored_field["pos"] += 1
                 found_not_done = True
                 break
 
@@ -367,7 +392,7 @@ def _send_message(self, data=None):
             add_byte(data, default_value, field=field)
             continue
         if func_name == "add_bytes":
-            add_byte(data, default_value, field=field)
+            add_bytes(data, default_value, field=field)
             continue
         if func_name == "add_string":
             add_string(data, default_value, field=field)
@@ -462,6 +487,8 @@ for i in range(1000):
         session.request_x11(auth_cookie="JO")
         session.exec_command("whoami")
         client.close()
+    except (paramiko.SSHException, EOFError) as exception:
+        pass
     except Exception as exception:
         print(f"An SSH exception has occurred: {exception}")
     except paramiko.fuzz.StopFuzzing as sf:
