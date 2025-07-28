@@ -365,6 +365,7 @@ def _send_message(self, data=None):
                     # pos 0 is the default value
                     stored_field["pos"] = 0
                     stored_field["active"] = True
+                    found_not_done = True
                     break
 
                 stored_field["pos"] += 1
@@ -425,7 +426,7 @@ def _send_message(self, data=None):
 
 
 FuzzMaster = paramiko.fuzz.FuzzMaster
-FuzzMaster.MUTATION_PER_RUN = 10000
+FuzzMaster.MUTATION_PER_RUN = 1000000000000
 FuzzMaster.add_fuzzdef("add_byte", add_byte)
 FuzzMaster.add_fuzzdef("add_bytes", add_bytes)
 FuzzMaster.add_fuzzdef("add_list", add_list)
@@ -467,7 +468,7 @@ if username == "":
 password = getpass.getpass("Password for %s@%s: " % (username, hostname))
 
 
-for i in range(1000):
+while True:
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -483,10 +484,10 @@ for i in range(1000):
             auth_timeout=1,
         )
         _, sout, _ = client.exec_command("whoami")
-        print(sout.read())
+        print("whoami: " + sout.read())
         print()
         _, sout, _ = client.exec_command("id")
-        print(sout.read())
+        print("id: " + sout.read())
         print()
         client.invoke_shell()
         client.open_sftp()
@@ -497,12 +498,19 @@ for i in range(1000):
         client.close()
     except (paramiko.SSHException, EOFError) as exception:
         pass
-    except Exception as exception:
-        print(f"An SSH exception has occurred: {exception}")
     except paramiko.fuzz.StopFuzzing as sf:
         print("STOP FUZZING")
 
         break
+    except Exception as exception:
+        print(f"An SSH exception has occurred: {exception}")
+
+    messages_prototype_done = 0
+    for name, messages_prototype in messages_prototypes.items():
+        if messages_prototype["done"]:
+            messages_prototype_done += 1
+
+    print(f"{messages_prototype_done=} out of {len(messages_prototypes)}")
 
 
 print(f"{messages_prototypes=}")
