@@ -34,39 +34,90 @@ max_byte = b"\xff"
 
 messages_prototypes = {}
 
+# Field struct:
+#  {"func": "add_bytes", "default": b, "done": False, "max": 4, "pos": 0}
+# 'func': the function that is called for this field
+# 'default': the default value for this field (i.e. pos == -1)
+# 'done': whether this field has been completely tested or not
+# 'max': how many non-default positions do we have?
+# 'pos': the position currently being sent, 0 being default value, non-0 fuzzing
 
-def add_bytes(self, b):
+
+def add_bytes(self, b, field=None):
     """
     Write bytes to the stream, without any formatting.
 
     :param str b: bytes to add
     """
 
-    self.fields.append({"func": "add_bytes", "default": b})
-    self.packet.write(b)
+    self.fields.append(
+        {"func": "add_bytes", "default": b, "done": False, "max": 5, "pos": 0}
+    )
+    new_b = b
+    if field is not None and field["pos"] > 0:
+        # Send non-default
+        if field["pos"] == 1:
+            # Send all 0x00
+            new_b = bytes([0] * len(b))
+        if field["pos"] == 2:
+            # Send all 0xFF
+            new_b = bytes([0xFF] * len(b))
+        if field["pos"] == 3:
+            # Send nothing
+            new_b = bytes(0)
+        if field["pos"] == 4:
+            # Send len-1
+            new_b = b[0:-1]
+        if field["pos"] == 5:
+            # Send len+1
+            new_b = b + b"\x00"
+
+    self.packet.write(new_b)
     return self
 
 
-def add_byte(self, b):
+def add_byte(self, b, field=None):
     """
     Write a single byte to the stream, without any formatting.
 
     :param str b: byte to add
     """
 
-    self.fields.append({"func": "add_byte", "default": b})
-    self.packet.write(b)
+    if field is None:
+        self.fields.append(
+            {"func": "add_byte", "default": b, "done": False, "max": 5, "pos": 0}
+        )
+
+    new_b = b
+    if field is not None and field["pos"] > 0:
+        # Send non-default
+        if field["pos"] == 1:
+            # Send all 0x00
+            new_b = bytes([0])
+        elif field["pos"] == 2:
+            # Send all 0xFF
+            new_b = bytes([0xFF])
+        elif field["pos"] == 3:
+            # Send nothing
+            new_b = bytes(0)
+        elif field["pos"] == 4:
+            # Send len+1
+            new_b = b + b"\x00"
+        else:
+            raise ValueError("Incorrect 'max' value")
+
+    self.packet.write(new_b)
     return self
 
 
-def add_boolean(self, b):
+def add_boolean(self, b, field=None):
     """
     Add a boolean value to the stream.
 
     :param bool b: boolean value to add
     """
 
-    self.fields.append({"func": "add_boolean", "default": b})
+    self.fields.append({"func": "add_boolean", "default": b, "done": False})
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -83,7 +134,7 @@ def add_boolean(self, b):
     return self
 
 
-def add_int(self, n, direct=True):
+def add_int(self, n, field=None, direct=True):
     """
     Add an integer to the stream.
 
@@ -92,7 +143,7 @@ def add_int(self, n, direct=True):
     """
 
     if direct:
-        self.fields.append({"func": "add_int", "default": n})
+        self.fields.append({"func": "add_int", "default": n, "done": False})
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -110,31 +161,31 @@ def add_int(self, n, direct=True):
     return self
 
 
-def add_adaptive_int(self, n):
+def add_adaptive_int(self, n, field=None):
     """
     Add an integer to the stream.
 
     :param int n: integer to add
     """
 
-    self.fields.append({"func": "add_adaptive_int", "default": n})
+    self.fields.append({"func": "add_adaptive_int", "default": n, "done": False})
     if n >= Message.big_int:
         self.packet.write(max_byte)
-        self.add_string(util.deflate_long(n), direct=False)
+        self.add_string(util.deflate_long(n), field, direct=False)
     else:
         self.packet.write(struct.pack(">I", n))
 
     return self
 
 
-def add_int64(self, n):
+def add_int64(self, n, field=None):
     """
     Add a 64-bit int to the stream.
 
     :param long n: long int to add
     """
 
-    self.fields.append({"func": "add_int64", "default": n})
+    self.fields.append({"func": "add_int64", "default": n, "done": False})
     self.packet.write(struct.pack(">Q", n))
     return self
 
@@ -156,7 +207,7 @@ def asbytes(s):
     return s
 
 
-def add_string(self, s, direct=True):
+def add_string(self, s, field=None, direct=True):
     """
     Add a string to the stream.
 
@@ -164,33 +215,49 @@ def add_string(self, s, direct=True):
     :param bool direct: whether the func is called directly or from another add_
     """
 
-    if direct:
-        self.fields.append({"func": "add_string", "default": s})
+    if field is None and direct:
+        self.fields.append(
+            {"func": "add_string", "default": s, "done": False, "max": 4, "pos": 0}
+        )
 
     s = asbytes(s)
-    if False and random.choice([False] * 7 + [True]):
-        # print(f"Adding to {s} - an int")
-        self.add_int(0xFFFFFFFF)
+    new_s = s
+    if field is not None and field["pos"] > 0:
+        if field["pos"] == 1:
+            # Add len-1
+            self.add_int(len(s) - 1, field=None, direct=False)
+        elif field["pos"] == 2:
+            # Add len+1
+            self.add_int(len(s) + 1, field=None, direct=False)
+        elif field["pos"] == 3:
+            # Add 0
+            self.add_int(0, field=None, direct=False)
+        elif field["pos"] == 4:
+            # Make string way longer
+            new_s = asbytes(bytes([0x41] * 256))
+            self.add_int(len(new_s), field=None, direct=False)
+        else:
+            raise ValueError("Incorrect 'max'")
     else:
-        self.add_int(len(s), False)
+        self.add_int(len(new_s), field=None, direct=False)
 
-    self.packet.write(s)
+    self.packet.write(new_s)
     return self
 
 
-def add_mpint(self, z):
+def add_mpint(self, z, field=None):
     """
     Add a long int to the stream, encoded as an infinite-precision
     integer.  This method only works on positive numbers.
 
     :param int z: long int to add
     """
-    self.fields.append({"func": "add_mpint", "default": z})
-    self.add_string(util.deflate_long(z), direct=False)
+    self.fields.append({"func": "add_mpint", "default": z, "done": False})
+    self.add_string(util.deflate_long(z), field, direct=False)
     return self
 
 
-def add_list(self, l):  # noqa: E741
+def add_list(self, l, field=None):
     """
     Add a list of strings to the stream.  They are encoded identically to
     a single string of values separated by commas.  (Yes, really, that's
@@ -198,17 +265,21 @@ def add_list(self, l):  # noqa: E741
 
     :param l: list of strings to add
     """
-    self.fields.append({"func": "add_list", "default": l})
-    self.add_string(",".join(l), direct=False)
+    self.fields.append({"func": "add_list", "default": l, "done": False})
+    self.add_string(",".join(l), field, direct=False)
     return self
 
 
-def _send_message(self, data):
+def _send_message(self, data=None):
     """
     Override the '_send_message', we want it to ignore the 'add_' calls
       and use the fields in either default state or in their fuzzed state
     """
 
+    if data is None:
+        return
+
+    messages_prototype = {}
     if data.name not in messages_prototypes:
         # If we haven't seen this prototype before, add it to the list with the fields at
         #   their default state
@@ -217,6 +288,8 @@ def _send_message(self, data):
             "active": False,
             "fields": data.fields.copy(),
         }
+        messages_prototype = messages_prototypes[data.name]
+        stored_fields = messages_prototype["fields"]
     else:
         # If we have seen this prototype before, make sure that the values (default) still match
         messages_prototype = messages_prototypes[data.name]
@@ -226,6 +299,12 @@ def _send_message(self, data):
 
         for idx, field in enumerate(data.fields):
             stored_field = stored_fields[idx]
+            if "done" not in stored_field:
+                stored_field["done"] = False
+
+            if "active" not in stored_field:
+                stored_field["active"] = False
+
             if stored_field["func"] != field["func"]:
                 raise ValueError("This is worrying... there is a func mismatch")
 
@@ -236,39 +315,43 @@ def _send_message(self, data):
                 #  closed channel_id will fail
                 stored_field["default"] = field["default"]
 
-        # Now that the default values are known to be ok, we can decide what to fuzz
-        if not messages_prototype["done"] and not messages_prototype["active"]:
-            # Mark it as being
-            messages_prototype["active"] = True
+    # Now that the default values are known to be ok, we can decide what to fuzz
+    if not messages_prototype["done"] and not messages_prototype["active"]:
+        # Mark it as being
+        messages_prototype["active"] = True
 
-        if messages_prototype["active"]:
-            # See if one of the fields can be tested
-            found_not_done = False
-            for stored_field in stored_fields:
-                if not stored_field["done"]:
-                    # We need to move it one pos forward and check if it reached
-                    #  the max
-                    if "pos" not in stored_field:
-                        # pos 0 is the default value
-                        stored_field["pos"] = 0
-                        stored_field["active"] = True
-                        break
+    if messages_prototype["active"]:
+        # See if one of the fields can be tested
+        found_not_done = False
+        for stored_field in stored_fields:
+            if not stored_field["done"]:
+                # We need to move it one pos forward and check if it reached
+                #  the max
+                if "max" not in stored_field:
+                    raise ValueError("A 'max' value should be given for a field")
 
-                    if stored_field["pos"] > stored_field["max"]:
-                        stored_field["pos"] = 0
-                        stored_field["active"] = False
-                        stored_field["done"] = True
-                        continue
-
-                    found_not_done = True
+                if "pos" not in stored_field:
+                    # pos 0 is the default value
+                    stored_field["pos"] = 0
+                    stored_field["active"] = True
                     break
 
-            if not found_not_done:
-                messages_prototype["done"] = True
+                if stored_field["pos"] > stored_field["max"]:
+                    stored_field["pos"] = 0
+                    stored_field["active"] = False
+                    stored_field["done"] = True
+                    continue
+
+                stored_field["pos"] += 1
+                found_not_done = True
+                break
+
+        if not found_not_done:
+            messages_prototype["done"] = True
 
     messages_prototype = messages_prototypes[data.name]
 
-    print(f"{data.name}: {len(messages_prototype['fields'])=}")
+    # print(f"{data.name}: {len(messages_prototype['fields'])=}")
 
     # before = hexdump(data.packet.getvalue(), result="return")
 
@@ -277,22 +360,23 @@ def _send_message(self, data):
         # field has two values at position:
         #  0 - func
         #  1 - default value
-        func_name = field[0]
-        default_value = field[1]
+        func_name = field["func"]
+        default_value = field["default"]
+        print(f"{field=}")
         if func_name == "add_byte":
-            add_byte(data, default_value)
+            add_byte(data, default_value, field=field)
             continue
         if func_name == "add_bytes":
-            add_byte(data, default_value)
+            add_byte(data, default_value, field=field)
             continue
         if func_name == "add_string":
-            add_string(data, default_value)
+            add_string(data, default_value, field=field)
             continue
         if func_name == "add_int":
-            add_int(data, default_value)
+            add_int(data, default_value, field=field)
             continue
         if func_name == "add_boolean":
-            add_boolean(data, default_value)
+            add_boolean(data, default_value, field=field)
             continue
 
         # If we fall through the cracks, just write the default value
@@ -350,10 +434,10 @@ if username == "":
 password = getpass.getpass("Password for %s@%s: " % (username, hostname))
 
 
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 for i in range(1000):
     try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
             hostname=hostname,
             port=port,
@@ -377,6 +461,9 @@ for i in range(1000):
         session = transport.open_session()
         session.request_x11(auth_cookie="JO")
         session.exec_command("whoami")
+        client.close()
+    except Exception as exception:
+        print(f"An SSH exception has occurred: {exception}")
     except paramiko.fuzz.StopFuzzing as sf:
         print("STOP FUZZING")
 
