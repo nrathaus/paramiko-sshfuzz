@@ -17,11 +17,11 @@ from hexdump import hexdump
 # logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
 
-file_path = os.path.abspath(".")
-sys.path.append(file_path)
 
 # If you don't install paramiko, this will allow you to run the python without it
 #  makes it easier to debug the code paramiko
+file_path = os.path.abspath(".")
+sys.path.append(file_path)
 
 import paramiko
 import paramiko.fuzz
@@ -42,7 +42,7 @@ def add_bytes(self, b):
     :param str b: bytes to add
     """
 
-    self.fields.append(["add_bytes", b])
+    self.fields.append({"func": "add_bytes", "default": b})
     self.packet.write(b)
     return self
 
@@ -54,7 +54,7 @@ def add_byte(self, b):
     :param str b: byte to add
     """
 
-    self.fields.append(["add_byte", b])
+    self.fields.append({"func": "add_byte", "default": b})
     self.packet.write(b)
     return self
 
@@ -66,7 +66,7 @@ def add_boolean(self, b):
     :param bool b: boolean value to add
     """
 
-    self.fields.append(["add_boolean", b])
+    self.fields.append({"func": "add_boolean", "default": b})
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -88,10 +88,11 @@ def add_int(self, n, direct=True):
     Add an integer to the stream.
 
     :param int n: integer to add
+    :param bool direct: whether the func is called directly or from another add_
     """
 
     if direct:
-        self.fields.append(["add_int", n])
+        self.fields.append({"func": "add_int", "default": n})
 
     # Disable randomization
     if False and random.choice([False] * 7 + [True]):
@@ -116,10 +117,10 @@ def add_adaptive_int(self, n):
     :param int n: integer to add
     """
 
-    self.fields.append(["add_adaptive_int", n])
+    self.fields.append({"func": "add_adaptive_int", "default": n})
     if n >= Message.big_int:
         self.packet.write(max_byte)
-        self.add_string(util.deflate_long(n))
+        self.add_string(util.deflate_long(n), direct=False)
     else:
         self.packet.write(struct.pack(">I", n))
 
@@ -133,7 +134,7 @@ def add_int64(self, n):
     :param long n: long int to add
     """
 
-    self.fields.append(["add_int64", n])
+    self.fields.append({"func": "add_int64", "default": n})
     self.packet.write(struct.pack(">Q", n))
     return self
 
@@ -160,10 +161,11 @@ def add_string(self, s, direct=True):
     Add a string to the stream.
 
     :param str s: string to add
+    :param bool direct: whether the func is called directly or from another add_
     """
 
     if direct:
-        self.fields.append(["add_string", s])
+        self.fields.append({"func": "add_string", "default": s})
 
     s = asbytes(s)
     if False and random.choice([False] * 7 + [True]):
@@ -183,8 +185,8 @@ def add_mpint(self, z):
 
     :param int z: long int to add
     """
-    self.fields.append(["add_mpint", z])
-    self.add_string(util.deflate_long(z), False)
+    self.fields.append({"func": "add_mpint", "default": z})
+    self.add_string(util.deflate_long(z), direct=False)
     return self
 
 
@@ -196,8 +198,8 @@ def add_list(self, l):  # noqa: E741
 
     :param l: list of strings to add
     """
-    self.fields.append(["add_list", l])
-    self.add_string(",".join(l), False)
+    self.fields.append({"func": "add_list", "default": l})
+    self.add_string(",".join(l), direct=False)
     return self
 
 
@@ -211,29 +213,64 @@ def _send_message(self, data):
         # If we haven't seen this prototype before, add it to the list with the fields at
         #   their default state
         messages_prototypes[data.name] = {
-            "current": -1,  # No field is being fuzzed
-            "pos": 0,  # The field being fuzzed position (0 being default)
+            "done": False,
+            "active": False,
             "fields": data.fields.copy(),
         }
     else:
         # If we have seen this prototype before, make sure that the values (default) still match
-        stored_fields = messages_prototypes[data.name]["fields"]
+        messages_prototype = messages_prototypes[data.name]
+        stored_fields = messages_prototype["fields"]
         if len(data.fields) != len(stored_fields):
             raise ValueError("This is worrying... there is a mismatch in the len")
 
         for idx, field in enumerate(data.fields):
             stored_field = stored_fields[idx]
-            if stored_field[0] != field[0]:
+            if stored_field["func"] != field["func"]:
                 raise ValueError("This is worrying... there is a func mismatch")
 
-            if stored_field[1] != field[1]:
-                stored_field[1] = field[1]
+            if stored_field["default"] != field["default"]:
+                # If the default value is different now, update the default value
+                #  otherwise we can fail, for example in the case of MSG_CHANNEL_OPEN
+                #  as the channel_id changes (every close/open) and using the previous
+                #  closed channel_id will fail
+                stored_field["default"] = field["default"]
+
+        # Now that the default values are known to be ok, we can decide what to fuzz
+        if not messages_prototype["done"] and not messages_prototype["active"]:
+            # Mark it as being
+            messages_prototype["active"] = True
+
+        if messages_prototype["active"]:
+            # See if one of the fields can be tested
+            found_not_done = False
+            for stored_field in stored_fields:
+                if not stored_field["done"]:
+                    # We need to move it one pos forward and check if it reached
+                    #  the max
+                    if "pos" not in stored_field:
+                        # pos 0 is the default value
+                        stored_field["pos"] = 0
+                        stored_field["active"] = True
+                        break
+
+                    if stored_field["pos"] > stored_field["max"]:
+                        stored_field["pos"] = 0
+                        stored_field["active"] = False
+                        stored_field["done"] = True
+                        continue
+
+                    found_not_done = True
+                    break
+
+            if not found_not_done:
+                messages_prototype["done"] = True
 
     messages_prototype = messages_prototypes[data.name]
 
     print(f"{data.name}: {len(messages_prototype['fields'])=}")
 
-    before = hexdump(data.packet.getvalue(), result="return")
+    # before = hexdump(data.packet.getvalue(), result="return")
 
     data.packet = BytesIO()
     for field in messages_prototype["fields"]:
@@ -261,9 +298,11 @@ def _send_message(self, data):
         # If we fall through the cracks, just write the default value
         raise ValueError("Forgot to define func")
 
-    after = hexdump(data.packet.getvalue(), result="return")
-    if after != before:
-        pass
+    # Use this 'before' and 'after' matching for 'default' state verification
+    #  i.e. no fuzzing should result in before and after working
+    # after = hexdump(data.packet.getvalue(), result="return")
+    # if after != before:
+    #     pass
 
     self.packetizer.send_message(data)
 
@@ -327,6 +366,9 @@ for i in range(1000):
             auth_timeout=1,
         )
         _, sout, _ = client.exec_command("whoami")
+        print(sout.read())
+        print()
+        _, sout, _ = client.exec_command("id")
         print(sout.read())
         print()
         client.invoke_shell()
