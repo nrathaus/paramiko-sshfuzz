@@ -1216,7 +1216,7 @@ class Channel(ClosingContextManager):
         self.event_ready = False
 
     def _wait_for_event(self):
-        self.event.wait()
+        self.event.wait(1.0)
         assert self.event.is_set()
         if self.event_ready:
             return
