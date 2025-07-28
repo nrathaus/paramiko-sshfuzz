@@ -417,6 +417,10 @@ class Packetizer:
         """
         # encrypt this sucka
         data = data.asbytes()
+        if len(data) == 0:
+            # raise ValueError("send_message - data is empty")
+            return
+
         cmd = byte_ord(data[0])
         if cmd in MSG_NAMES:
             cmd_name = MSG_NAMES[cmd]
