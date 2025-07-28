@@ -355,7 +355,13 @@ def _send_message(self, data=None):
                     msg = f"A 'max' value should be given for a {stored_field=}"
                     raise ValueError(msg)
 
-                if "pos" not in stored_field:
+                if "done" not in stored_field:
+                    stored_field["done"] = False
+
+                if "active" not in stored_field:
+                    stored_field["active"] = False
+
+                if not stored_field["done"] and not stored_field["active"]:
                     # pos 0 is the default value
                     stored_field["pos"] = 0
                     stored_field["active"] = True
@@ -387,7 +393,9 @@ def _send_message(self, data=None):
         #  1 - default value
         func_name = field["func"]
         default_value = field["default"]
-        print(f"{field=}")
+        if "active" in field and field["active"]:
+            print(f"{data.name} - {field=}")
+
         if func_name == "add_byte":
             add_byte(data, default_value, field=field)
             continue
