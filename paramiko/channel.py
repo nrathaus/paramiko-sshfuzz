@@ -397,7 +397,7 @@ class Channel(ClosingContextManager):
 
         .. versionadded:: 1.2
         """
-        self.status_event.wait()
+        self.status_event.wait(1.0)
         assert self.status_event.is_set()
         return self.exit_status
 
