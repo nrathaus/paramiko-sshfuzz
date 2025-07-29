@@ -35,8 +35,10 @@ from paramiko import Message, util
 class TimeoutException(Exception):
     pass
 
+
 def timeout_handler(signum, frame):
     raise TimeoutException("Code execution timed out!")
+
 
 zero_byte = b"\x00"
 one_byte = b"\x01"
@@ -63,7 +65,7 @@ def add_bytes(self, b, field=None):
 
     if field is None:
         self.fields.append(
-            {"func": "add_bytes", "default": b, "done": False, "max": 5, "pos": 0}
+            {"func": "add_bytes", "default": b, "done": False, "max": 6, "pos": 0}
         )
 
     new_b = b
@@ -84,6 +86,9 @@ def add_bytes(self, b, field=None):
         elif field["pos"] == 5:
             # Send len+1
             new_b = b + b"\x00"
+        elif field["pos"] == 6:
+            # Send reverse ordered bytes
+            new_b = bytes(reversed(b))
         else:
             raise ValueError("Incorrect 'max' value")
 
@@ -137,7 +142,7 @@ def add_boolean(self, b, field=None):
 
     if field is None:
         self.fields.append(
-            {"func": "add_boolean", "default": b, "done": False, "max": 1, "pos": 0}
+            {"func": "add_boolean", "default": b, "done": False, "max": 3, "pos": 0}
         )
 
     if field is not None and field["pos"] > 0:
@@ -147,6 +152,12 @@ def add_boolean(self, b, field=None):
                 self.packet.write(zero_byte)
             else:
                 self.packet.write(one_byte)
+        elif field["pos"] == 2:
+            # Send non-1/0
+            self.packet.write(b"\x02")
+        elif field["pos"] == 3:
+            # Send 0xFF
+            self.packet.write(b"\xff")
         else:
             raise ValueError("Incorrect 'max' value")
     else:
@@ -168,7 +179,7 @@ def add_int(self, n, field=None, direct=True):
 
     if field is None and direct:
         self.fields.append(
-            {"func": "add_int", "default": n, "done": False, "max": 4, "pos": 0}
+            {"func": "add_int", "default": n, "done": False, "max": 7, "pos": 0}
         )
 
     if field is not None and field["pos"] > 0:
@@ -184,6 +195,15 @@ def add_int(self, n, field=None, direct=True):
         elif field["pos"] == 4:
             # half negative
             n = 0x80000000
+        elif field["pos"] == 5:
+            # Edge
+            n = 0x8FFFFFFF
+        elif field["pos"] == 6:
+            # Edge
+            n = 0xFFFFFFF7
+        elif field["pos"] == 7:
+            # Edge
+            n = 0xFFFFFFF8
         else:
             raise ValueError("Incorrect 'max' value")
 
@@ -275,7 +295,7 @@ def add_string(self, s, field=None, direct=True):
             # Put 0
             self.add_int(0, field=None, direct=False)
         elif field["pos"] == 4:
-            # Make string way longer
+            # Send %n
             new_s = asbytes(bytes([0x25, 0x6E] * 65535))
             self.add_int(len(new_s), field=None, direct=False)
         elif field["pos"] == 5:
@@ -283,11 +303,15 @@ def add_string(self, s, field=None, direct=True):
             new_s = asbytes(bytes([0x41] * 65535))
             self.add_int(len(new_s), field=None, direct=False)
         elif field["pos"] == 6:
+            # Send NULL
+            new_s = asbytes(bytes([0x00] * len(s)))
+            self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] == 7:
             # Send half the string
             half_length = round(-1 * (len(s) / 2))
             new_s = asbytes(s[:half_length])
             self.add_int(len(new_s), field=None, direct=False)
-        elif field["pos"] == 7:
+        elif field["pos"] == 8:
             # Send length, without the string
             self.add_int(len(new_s), field=None, direct=False)
             new_s = asbytes(bytes())
@@ -360,7 +384,7 @@ def _send_message(self, data=None):
         messages_prototypes[data.name] = {
             "done": False,
             "active": False,
-            "fields": deepcopy(data.fields)
+            "fields": deepcopy(data.fields),
         }
         messages_prototype = messages_prototypes[data.name]
         stored_fields = messages_prototype["fields"]
@@ -543,12 +567,8 @@ while True:
         )
         _, sout, _ = client.exec_command("whoami")
         whoami = sout.read()
-        # print(f"whoami: {whoami}")
-        # print()
         _, sout, _ = client.exec_command("id")
         id = sout.read()
-        # print(f"id: {id}")
-        # print()
         client.invoke_shell()
         client.open_sftp()
         transport = client.get_transport()
