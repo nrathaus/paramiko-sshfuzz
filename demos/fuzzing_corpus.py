@@ -10,6 +10,8 @@ import sys
 import struct
 
 import logging
+import signal
+import time
 
 from copy import deepcopy
 from io import BytesIO
@@ -28,6 +30,13 @@ sys.path.append(file_path)
 import paramiko
 import paramiko.fuzz
 from paramiko import Message, util
+
+
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Code execution timed out!")
 
 zero_byte = b"\x00"
 one_byte = b"\x01"
@@ -514,6 +523,10 @@ password = getpass.getpass("Password for %s@%s: " % (username, hostname))
 
 
 while True:
+    current_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    # Timeout in 5s
+    signal.alarm(5)
+
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -543,12 +556,15 @@ while True:
         session.request_x11(auth_cookie="JO")
         session.exec_command("whoami")
         client.close()
+    except TimeoutException as exception:
+        print("Timeout occured")
     except (paramiko.SSHException, EOFError, AssertionError) as exception:
         pass
     except paramiko.fuzz.StopFuzzing as sf:
         print("STOP FUZZING")
-
         break
+    finally:
+        signal.alarm(0)
     # except Exception as exception:
     # print(f"An SSH exception has occurred: {exception}")
 
