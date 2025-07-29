@@ -10,6 +10,8 @@ import sys
 import struct
 
 import logging
+
+from copy import deepcopy
 from io import BytesIO
 
 # from hexdump import hexdump
@@ -312,7 +314,7 @@ def add_list(self, l, field=None):
     """
     if field is None:
         self.fields.append(
-            {"func": "add_list", "default": l, "done": False, "max": 2, "pos": 0}
+            {"func": "add_list", "default": l, "done": False, "max": 3, "pos": 0}
         )
 
     if field is not None and field["pos"] > 0:
@@ -322,6 +324,11 @@ def add_list(self, l, field=None):
         if field["pos"] == 2:
             # Put just the delimiter with an empty value
             self.add_string(",,", field, direct=False)
+        if field["pos"] == 3:
+            # Reverse the order
+            copy_l = deepcopy(l)
+            copy_l = list(reversed(copy_l))
+            self.add_string(",".join(copy_l), field, direct=False)
     else:
         self.add_string(",".join(l), field, direct=False)
 
@@ -344,7 +351,7 @@ def _send_message(self, data=None):
         messages_prototypes[data.name] = {
             "done": False,
             "active": False,
-            "fields": data.fields.copy(),
+            "fields": deepcopy(data.fields)
         }
         messages_prototype = messages_prototypes[data.name]
         stored_fields = messages_prototype["fields"]
@@ -446,9 +453,13 @@ def _send_message(self, data=None):
         if func_name == "add_boolean":
             add_boolean(data, default_value, field=field)
             continue
+        if func_name == "add_list":
+            add_list(data, default_value, field=field)
+            continue
 
         # If we fall through the cracks, just write the default value
-        raise ValueError("Forgot to define func")
+        msg = f"Forgot to define func: {func_name}"
+        raise ValueError(msg)
 
     # Use this 'before' and 'after' matching for 'default' state verification
     #  i.e. no fuzzing should result in before and after working
