@@ -10,8 +10,6 @@ import sys
 import struct
 
 import logging
-import signal
-import time
 
 from copy import deepcopy
 from io import BytesIO
@@ -32,18 +30,11 @@ import paramiko.fuzz
 from paramiko import Message, util
 
 
-class TimeoutException(Exception):
-    pass
-
-
-def timeout_handler(signum, frame):
-    raise TimeoutException("Code execution timed out!")
-
-
 zero_byte = b"\x00"
 one_byte = b"\x01"
 max_byte = b"\xff"
 
+ITERATIONS_COUNT = 0
 
 messages_prototypes = {}
 
@@ -179,7 +170,7 @@ def add_int(self, n, field=None, direct=True):
 
     if field is None and direct:
         self.fields.append(
-            {"func": "add_int", "default": n, "done": False, "max": 7, "pos": 0}
+            {"func": "add_int", "default": n, "done": False, "max": 12, "pos": 0}
         )
 
     if field is not None and field["pos"] > 0:
@@ -187,23 +178,44 @@ def add_int(self, n, field=None, direct=True):
             # min
             n = 0
         elif field["pos"] == 2:
+            # negate
+            n = (~n) & 0xFFFFFFFF
+        elif field["pos"] == 3:
+            # n-1
+            n -= 1
+
+            # Prevent unsigned int underflow (struct below will fail)
+            n = max(n, 0)
+        elif field["pos"] == 4:
+            # n+1
+            n += 1
+
+            # Prevent unsigned int overflow (struct below will fail)
+            n = min(n, 0xFFFFFFFF)
+        elif field["pos"] == 5:
+            # max
+            n = 0x0FFFFFFF
+        elif field["pos"] == 6:
             # max
             n = 0xFFFFFFFF
-        elif field["pos"] == 3:
+        elif field["pos"] == 7:
             # half positive
             n = 0x7FFFFFFF
-        elif field["pos"] == 4:
+        elif field["pos"] == 8:
             # half negative
             n = 0x80000000
-        elif field["pos"] == 5:
+        elif field["pos"] == 9:
             # Edge
             n = 0x8FFFFFFF
-        elif field["pos"] == 6:
+        elif field["pos"] == 10:
             # Edge
             n = 0xFFFFFFF7
-        elif field["pos"] == 7:
+        elif field["pos"] == 11:
             # Edge
             n = 0xFFFFFFF8
+        elif field["pos"] == 12:
+            # Edge
+            n = 0xFFFFFFF0
         else:
             raise ValueError("Incorrect 'max' value")
 
@@ -275,7 +287,13 @@ def add_string(self, s, field=None, direct=True):
 
     if field is None and direct:
         self.fields.append(
-            {"func": "add_string", "default": s, "done": False, "max": 7, "pos": 0}
+            {
+                "func": "add_string",
+                "default": s,
+                "done": False,
+                "max": 9 + 16 + 16 + 16,
+                "pos": 0,
+            }
         )
 
     s = asbytes(s)
@@ -295,26 +313,37 @@ def add_string(self, s, field=None, direct=True):
             # Put 0
             self.add_int(0, field=None, direct=False)
         elif field["pos"] == 4:
-            # Send %n
-            new_s = asbytes(bytes([0x25, 0x6E] * 65535))
-            self.add_int(len(new_s), field=None, direct=False)
-        elif field["pos"] == 5:
-            # Make string way longer
-            new_s = asbytes(bytes([0x41] * 65535))
-            self.add_int(len(new_s), field=None, direct=False)
-        elif field["pos"] == 6:
             # Send NULL
             new_s = asbytes(bytes([0x00] * len(s)))
             self.add_int(len(new_s), field=None, direct=False)
-        elif field["pos"] == 7:
+        elif field["pos"] == 5:
             # Send half the string
             half_length = round(-1 * (len(s) / 2))
             new_s = asbytes(s[:half_length])
             self.add_int(len(new_s), field=None, direct=False)
-        elif field["pos"] == 8:
+        elif field["pos"] == 6:
             # Send length, without the string
             self.add_int(len(new_s), field=None, direct=False)
             new_s = asbytes(bytes())
+        elif field["pos"] == 7:
+            # Reverse string
+            self.add_int(len(new_s), field=None, direct=False)
+            new_s = asbytes(bytes(reversed(s)))
+        elif field["pos"] >= 8 and field["pos"] <= (8 + 16):
+            # Fuzz length between 1 byte and 2^16
+            new_s_len = 2 ** (field["pos"] - 8)
+            new_s = asbytes(bytes([0x41] * new_s_len))
+            self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] >= 9 + 16 and field["pos"] <= (9 + 16 + 16):
+            # Fuzz length between 1 byte and 2^16
+            new_s_len = 2 ** (field["pos"] - (9 + 16))
+            new_s = asbytes(("%n" * new_s_len).encode())
+            self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] >= 9 + 16 + 16 and field["pos"] <= (9 + 16 + 16 + 16):
+            # Fuzz length between 1 byte and 2^16
+            new_s_len = 2 ** (field["pos"] - (9 + 16 + 16))
+            new_s = asbytes(bytes([0x00] * new_s_len))
+            self.add_int(len(new_s), field=None, direct=False)
         else:
             raise ValueError("Incorrect 'max'")
     else:
@@ -347,21 +376,29 @@ def add_list(self, l, field=None):
     """
     if field is None:
         self.fields.append(
-            {"func": "add_list", "default": l, "done": False, "max": 3, "pos": 0}
+            {"func": "add_list", "default": l, "done": False, "max": 5, "pos": 0}
         )
 
     if field is not None and field["pos"] > 0:
         if field["pos"] == 1:
             # Put just the delimiter
             self.add_string(",", field, direct=False)
-        if field["pos"] == 2:
+        elif field["pos"] == 2:
             # Put just the delimiter with an empty value
             self.add_string(",,", field, direct=False)
-        if field["pos"] == 3:
+        elif field["pos"] == 3:
             # Reverse the order
             copy_l = deepcopy(l)
             copy_l = list(reversed(copy_l))
             self.add_string(",".join(copy_l), field, direct=False)
+        elif field["pos"] == 4:
+            # No delimiter
+            self.add_string("".join(l), field, direct=False)
+        elif field["pos"] == 5:
+            # Add a null
+            self.add_string("\x00".join(l), field, direct=False)
+        else:
+            raise ValueError("Incorrect 'max'")
     else:
         self.add_string(",".join(l), field, direct=False)
 
@@ -373,6 +410,7 @@ def _send_message(self, data=None):
     Override the '_send_message', we want it to ignore the 'add_' calls
       and use the fields in either default state or in their fuzzed state
     """
+    global ITERATIONS_COUNT
 
     if data is None:
         return
@@ -390,6 +428,7 @@ def _send_message(self, data=None):
         stored_fields = messages_prototype["fields"]
     else:
         # If we have seen this prototype before, make sure that the values (default) still match
+        #  session id are dynamic, so they (default val) need to by updated each time
         messages_prototype = messages_prototypes[data.name]
         stored_fields = messages_prototype["fields"]
         if len(data.fields) != len(stored_fields):
@@ -443,6 +482,8 @@ def _send_message(self, data=None):
                     break
 
                 stored_field["pos"] += 1
+                ITERATIONS_COUNT += 1
+
                 if stored_field["pos"] > stored_field["max"]:
                     stored_field["pos"] = 0
                     stored_field["active"] = False
@@ -547,10 +588,6 @@ password = getpass.getpass("Password for %s@%s: " % (username, hostname))
 
 
 while True:
-    current_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    # Timeout in 5s
-    signal.alarm(5)
-
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -576,15 +613,11 @@ while True:
         session.request_x11(auth_cookie="JO")
         session.exec_command("whoami")
         client.close()
-    except TimeoutException as exception:
-        print("Timeout occured")
     except (paramiko.SSHException, EOFError, AssertionError) as exception:
         pass
     except paramiko.fuzz.StopFuzzing as sf:
         print("STOP FUZZING")
         break
-    finally:
-        signal.alarm(0)
     # except Exception as exception:
     # print(f"An SSH exception has occurred: {exception}")
 
@@ -601,12 +634,21 @@ while True:
 
     print(
         f"{messages_prototype_done=} out of {len(messages_prototypes)}, "
-        f"{different_fuzzed_values=}, {tested_fields=}"
+        f"{different_fuzzed_values=}, {tested_fields=}, {ITERATIONS_COUNT=}"
     )
 
     if messages_prototype_done == len(messages_prototypes):
         print("Done fuzzing")
         break
 
+# Lets see what func we have the most - to improve coverage
+func_count = {}
+for name, messages_prototype in messages_prototypes.items():
+    for messages_prototype_field in messages_prototype["fields"]:
+        if messages_prototype_field["func"] not in func_count:
+            func_count[messages_prototype_field["func"]] = 0
 
-print(f"{messages_prototypes=}")
+        func_count[messages_prototype_field["func"]] += 1
+
+print(f"{func_count=}")
+# print(f"{messages_prototypes=}")
