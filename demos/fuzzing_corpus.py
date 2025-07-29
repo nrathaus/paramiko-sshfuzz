@@ -16,9 +16,6 @@ from io import BytesIO
 
 # from hexdump import hexdump
 
-# logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
-
 
 # If you don't install paramiko, this will allow you to run the python without it
 #  makes it easier to debug the code paramiko
@@ -28,6 +25,9 @@ sys.path.append(file_path)
 import paramiko
 import paramiko.fuzz
 from paramiko import Message, util
+
+# logging.basicConfig(level=logging.INFO)
+# logging.getLogger("paramiko.fuzz").setLevel(logging.DEBUG)
 
 
 zero_byte = b"\x00"
