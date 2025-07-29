@@ -250,6 +250,7 @@ class Message:
         self.packet.write(struct.pack(">I", n))
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_adaptive_int(self, n):
         """
         Add an integer to the stream.
@@ -298,6 +299,7 @@ class Message:
         self.packet.write(s)
         return self
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def add_list(self, l):  # noqa: E741
         """
         Add a list of strings to the stream.  They are encoded identically to
