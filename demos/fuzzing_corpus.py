@@ -12,7 +12,7 @@ import struct
 import logging
 from io import BytesIO
 
-from hexdump import hexdump
+# from hexdump import hexdump
 
 # logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("paramiko.fuzz").setLevel(logging.INFO)
@@ -89,7 +89,7 @@ def add_byte(self, b, field=None):
 
     if field is None:
         self.fields.append(
-            {"func": "add_byte", "default": b, "done": False, "max": 4, "pos": 0}
+            {"func": "add_byte", "default": b, "done": False, "max": 5, "pos": 0}
         )
 
     new_b = b
@@ -107,6 +107,9 @@ def add_byte(self, b, field=None):
         elif field["pos"] == 4:
             # Send len+1
             new_b = b + b"\x00"
+        elif field["pos"] == 5:
+            # negate / bit flip
+            new_b = bytes((~b[0]) & 0xFF)
         else:
             raise ValueError("Incorrect 'max' value")
 
@@ -159,12 +162,16 @@ def add_int(self, n, field=None, direct=True):
 
     if field is not None and field["pos"] > 0:
         if field["pos"] == 1:
+            # min
             n = 0
         elif field["pos"] == 2:
+            # max
             n = 0xFFFFFFFF
         elif field["pos"] == 3:
+            # half positive
             n = 0x7FFFFFFF
         elif field["pos"] == 4:
+            # half negative
             n = 0x80000000
         else:
             raise ValueError("Incorrect 'max' value")
@@ -237,29 +244,42 @@ def add_string(self, s, field=None, direct=True):
 
     if field is None and direct:
         self.fields.append(
-            {"func": "add_string", "default": s, "done": False, "max": 4, "pos": 0}
+            {"func": "add_string", "default": s, "done": False, "max": 7, "pos": 0}
         )
 
     s = asbytes(s)
     new_s = s
     if field is not None and field["pos"] > 0:
         if field["pos"] == 1:
-            # Add len-1
+            # Put len-1
             new_len = len(s) - 1
             if new_len < 0:
                 # add_int is "">I" - unsigned int
                 new_len = 0
             self.add_int(new_len, field=None, direct=False)
         elif field["pos"] == 2:
-            # Add len+1
+            # Put len+1
             self.add_int(len(s) + 1, field=None, direct=False)
         elif field["pos"] == 3:
-            # Add 0
+            # Put 0
             self.add_int(0, field=None, direct=False)
         elif field["pos"] == 4:
             # Make string way longer
+            new_s = asbytes(bytes([0x25, 0x6E] * 65535))
+            self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] == 5:
+            # Make string way longer
             new_s = asbytes(bytes([0x41] * 65535))
             self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] == 6:
+            # Send half the string
+            half_length = round(-1 * (len(s) / 2))
+            new_s = asbytes(s[:half_length])
+            self.add_int(len(new_s), field=None, direct=False)
+        elif field["pos"] == 7:
+            # Send length, without the string
+            self.add_int(len(new_s), field=None, direct=False)
+            new_s = asbytes(bytes())
         else:
             raise ValueError("Incorrect 'max'")
     else:
@@ -277,6 +297,7 @@ def add_mpint(self, z, field=None):
     :param int z: long int to add
     """
     self.fields.append({"func": "add_mpint", "default": z, "done": False})
+
     self.add_string(util.deflate_long(z), field, direct=False)
     return self
 
@@ -289,8 +310,21 @@ def add_list(self, l, field=None):
 
     :param l: list of strings to add
     """
-    self.fields.append({"func": "add_list", "default": l, "done": False})
-    self.add_string(",".join(l), field, direct=False)
+    if field is None:
+        self.fields.append(
+            {"func": "add_list", "default": l, "done": False, "max": 2, "pos": 0}
+        )
+
+    if field is not None and field["pos"] > 0:
+        if field["pos"] == 1:
+            # Put just the delimiter
+            self.add_string(",", field, direct=False)
+        if field["pos"] == 2:
+            # Put just the delimiter with an empty value
+            self.add_string(",,", field, direct=False)
+    else:
+        self.add_string(",".join(l), field, direct=False)
+
     return self
 
 
@@ -484,11 +518,13 @@ while True:
             auth_timeout=1,
         )
         _, sout, _ = client.exec_command("whoami")
-        print("whoami: " + sout.read())
-        print()
+        whoami = sout.read()
+        # print(f"whoami: {whoami}")
+        # print()
         _, sout, _ = client.exec_command("id")
-        print("id: " + sout.read())
-        print()
+        id = sout.read()
+        # print(f"id: {id}")
+        # print()
         client.invoke_shell()
         client.open_sftp()
         transport = client.get_transport()
@@ -496,21 +532,34 @@ while True:
         session.request_x11(auth_cookie="JO")
         session.exec_command("whoami")
         client.close()
-    except (paramiko.SSHException, EOFError) as exception:
+    except (paramiko.SSHException, EOFError, AssertionError) as exception:
         pass
     except paramiko.fuzz.StopFuzzing as sf:
         print("STOP FUZZING")
 
         break
-    except Exception as exception:
-        print(f"An SSH exception has occurred: {exception}")
+    # except Exception as exception:
+    # print(f"An SSH exception has occurred: {exception}")
 
     messages_prototype_done = 0
+    tested_fields = 0
+    different_fuzzed_values = 0
     for name, messages_prototype in messages_prototypes.items():
         if messages_prototype["done"]:
             messages_prototype_done += 1
+            for messages_prototype_field in messages_prototype["fields"]:
+                if messages_prototype_field["done"]:
+                    tested_fields += 1
+                    different_fuzzed_values += messages_prototype_field["max"]
 
-    print(f"{messages_prototype_done=} out of {len(messages_prototypes)}")
+    print(
+        f"{messages_prototype_done=} out of {len(messages_prototypes)}, "
+        f"{different_fuzzed_values=}, {tested_fields=}"
+    )
+
+    if messages_prototype_done == len(messages_prototypes):
+        print("Done fuzzing")
+        break
 
 
 print(f"{messages_prototypes=}")
