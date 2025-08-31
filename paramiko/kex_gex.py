@@ -182,7 +182,7 @@ class KexGex:
         self.g, self.p = pack.get_modulus(
             self.min_bits, self.preferred_bits, self.max_bits
         )
-        m = Message('MSG_KEXDH_GEX_GROUP - parse-kexdh-gex-request-old')
+        m = Message('MSG_KEXDH_GEX_GROUP parse-kexdh-gex-request-old')
         m.add_byte(c_MSG_KEXDH_GEX_GROUP)
         m.add_mpint(self.p)
         m.add_mpint(self.g)
