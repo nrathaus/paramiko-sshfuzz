@@ -648,14 +648,27 @@ class Packetizer:
             self.__logger.log(level, msg)
 
     def _check_keepalive(self):
+        now = time.time()
+
         if (
             not self.__keepalive_interval
             or not self.__block_engine_out
             or self.__need_rekey
         ):
-            # wait till we're encrypting, and not in the middle of rekeying
-            return
-        now = time.time()
+            # Wait till we're encrypting, and not in the middle of rekeying
+            # However, since the communication channel may be broken/malformed
+            # (due to server-client communication issues) we may get stuck in a
+            # loop due to this, put a 5s limit on this loop
+            if "keep_alive_wait" not in dir(self) or self.keep_alive_wait is None:
+                self.keep_alive_wait = now
+
+            if now - self.keep_alive_wait > 5:
+                # We waited for 5 seconds, don't anymore..
+                pass
+            else:
+                return
+
+        self.keep_alive_wait = None
         if now > self.__keepalive_last + self.__keepalive_interval:
             self.__keepalive_callback()
             self.__keepalive_last = now
