@@ -1345,6 +1345,9 @@ class Transport(threading.Thread, ClosingContextManager):
         gss_kex=False,
         gss_deleg_creds=True,
         gss_trust_dns=True,
+        banner_timeout=None,
+        auth_timeout=None,
+        channel_timeout=None,
     ):
         """
         Negotiate an SSH2 session, and optionally verify the server's host key
@@ -1406,6 +1409,13 @@ class Transport(threading.Thread, ClosingContextManager):
                 ]
             else:
                 self._preferred_keys = [hostkey.get_name()]
+
+        if banner_timeout is not None:
+            self.banner_timeout = banner_timeout
+        if auth_timeout is not None:
+            self.auth_timeout = auth_timeout
+        if channel_timeout is not None:
+            self.channel_timeout = channel_timeout
 
         self.set_gss_host(
             gss_host=gss_host,
