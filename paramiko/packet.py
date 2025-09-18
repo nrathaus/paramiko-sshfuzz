@@ -670,6 +670,10 @@ class Packetizer:
 
         self.keep_alive_wait = None
         if now > self.__keepalive_last + self.__keepalive_interval:
+            if self.__keepalive_callback is None:
+                # If there is no keepalive callback, just raise an EOFError
+                raise EOFError("Keepalive timeout")
+
             self.__keepalive_callback()
             self.__keepalive_last = now
 
