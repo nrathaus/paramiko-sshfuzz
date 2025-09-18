@@ -18,6 +18,8 @@
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
+# If you don't install paramiko, this will allow you to run the python without it
+#  makes it easier to debug the code paramiko
 import os
 import socket
 import sys
@@ -25,15 +27,13 @@ import threading
 import traceback
 from binascii import hexlify
 
-# If you don't install paramiko, this will allow you to run the python without it
-#  makes it easier to debug the code paramiko
 file_path = os.path.abspath(".")
 sys.path.append(file_path)
 
 from base64 import decodebytes
 
 import paramiko
-from paramiko.util import u, log_to_file
+from paramiko.util import u
 
 # setup logging
 log_to_file("demo_server.log")
@@ -169,14 +169,14 @@ while True:
             print("*** Client never asked for a shell.")
             continue
 
-        chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
-        chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
-        chan.send("Happy birthday to Robot Dave!\r\n\r\n")
-        chan.send("Username: ")
-        f = chan.makefile("rU")
-        username = f.readline().strip("\r\n")
-        chan.send("\r\nI don't like you, " + username + ".\r\n")
-        chan.close()
+    chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
+    chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
+    chan.send("Happy birthday to Robot Dave!\r\n\r\n")
+    chan.send("Username: ")
+    f = chan.makefile("rU")
+    username = f.readline().strip("\r\n")
+    chan.send("\r\nI don't like you, " + username + ".\r\n")
+    chan.close()
 
     except Exception as e:
         print("*** Caught exception: " + str(e.__class__) + ": " + str(e))
