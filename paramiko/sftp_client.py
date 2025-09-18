@@ -61,6 +61,7 @@ from paramiko.sftp import (
     SFTP_NO_SUCH_FILE,
     SFTP_PERMISSION_DENIED,
     int64,
+    CMD_NAMES,
 )
 
 from paramiko.sftp_attr import SFTPAttributes
@@ -860,7 +861,7 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
         # this method may be called from other threads (prefetch)
         self._lock.acquire()
         try:
-            msg = Message('async-request')
+            msg = Message(f'async-request - {CMD_NAMES[t]}')
             msg.add_int(self.request_number)
             for item in args:
                 if isinstance(item, int64):
