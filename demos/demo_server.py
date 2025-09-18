@@ -169,14 +169,14 @@ while True:
             print("*** Client never asked for a shell.")
             continue
 
-    chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
-    chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
-    chan.send("Happy birthday to Robot Dave!\r\n\r\n")
-    chan.send("Username: ")
-    f = chan.makefile("rU")
-    username = f.readline().strip("\r\n")
-    chan.send("\r\nI don't like you, " + username + ".\r\n")
-    chan.close()
+        chan.send("\r\n\r\nWelcome to my dorky little BBS!\r\n\r\n")
+        chan.send("We are on fire all the time!  Hooray!  Candy corn for everyone!\r\n")
+        chan.send("Happy birthday to Robot Dave!\r\n\r\n")
+        chan.send("Username: ")
+        f = chan.makefile("rU")
+        username = f.readline().strip("\r\n")
+        chan.send("\r\nI don't like you, " + username + ".\r\n")
+        chan.close()
 
     except Exception as e:
         print("*** Caught exception: " + str(e.__class__) + ": " + str(e))
