@@ -129,6 +129,8 @@ class Packetizer:
         self.__keepalive_last = time.time()
         self.__keepalive_callback = None
 
+        self.keep_alive_wait = None
+
         self.__timer = None
         self.__handshake_complete = False
         self.__timer_expired = False
@@ -659,7 +661,7 @@ class Packetizer:
             # However, since the communication channel may be broken/malformed
             # (due to server-client communication issues) we may get stuck in a
             # loop due to this, put a 5s limit on this loop
-            if "keep_alive_wait" not in dir(self) or self.keep_alive_wait is None:
+            if self.keep_alive_wait is None:
                 self.keep_alive_wait = now
 
             if now - self.keep_alive_wait > 5:
