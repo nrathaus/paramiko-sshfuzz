@@ -23,7 +23,7 @@ import struct
 from paramiko import util
 from paramiko.common import DEBUG, byte_chr, byte_ord
 from paramiko.message import Message
-
+import paramiko.fuzz
 
 (
     CMD_INIT,
@@ -201,6 +201,7 @@ class BaseSFTP:
             n -= len(x)
         return out
 
+    @paramiko.fuzz.FuzzMaster.candidate
     def _send_packet(self, t, packet):
         packet = packet.asbytes()
         out = struct.pack(">I", len(packet) + 1) + byte_chr(t) + packet
