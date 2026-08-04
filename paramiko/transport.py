@@ -2276,7 +2276,9 @@ class Transport(threading.Thread, ClosingContextManager):
                         # message type" message (unless the message type was
                         # itself literally MSG_UNIMPLEMENTED, in which case, we
                         # just shut up to avoid causing a useless loop).
-                        name = MSG_NAMES[ptype]
+                        # ptype came straight off the wire, so it can be any
+                        # byte value; MSG_NAMES only covers the types we know.
+                        name = MSG_NAMES.get(ptype, "unknown")
                         warning = "Oops, unhandled type {} ({!r})".format(
                             ptype, name
                         )

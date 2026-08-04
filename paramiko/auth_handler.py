@@ -456,7 +456,9 @@ class AuthHandler:
                                 self.transport.send_message(m)
                     else:
                         raise SSHException(
-                            "Received Package: {}".format(MSG_NAMES[ptype])
+                            "Received Package: {}".format(
+                                MSG_NAMES.get(ptype, ptype)
+                            )
                         )
                     m = Message('MSG_USERAUTH_GSSAPI_MIC')
                     m.add_byte(cMSG_USERAUTH_GSSAPI_MIC)
@@ -487,7 +489,9 @@ Error Message: {}
                     return
                 else:
                     raise SSHException(
-                        "Received Package: {}".format(MSG_NAMES[ptype])
+                        "Received Package: {}".format(
+                            MSG_NAMES.get(ptype, ptype)
+                        )
                     )
             elif (
                 self.auth_method == "gssapi-keyex"

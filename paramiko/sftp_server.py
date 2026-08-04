@@ -374,7 +374,10 @@ class SFTPServer(BaseSFTP, SubsystemHandler):
         return flags
 
     def _process(self, t, request_number, msg):
-        self._log(DEBUG, "Request: {}".format(CMD_NAMES[t]))
+        # t is the client-supplied packet type, so it can be any byte value;
+        # CMD_NAMES only covers the types we know. Unknown types fall through
+        # to the SFTP_OP_UNSUPPORTED branch at the bottom of this method.
+        self._log(DEBUG, "Request: {}".format(CMD_NAMES.get(t, t)))
         if t == CMD_OPEN:
             path = msg.get_text()
             flags = self._convert_pflags(msg.get_int())
