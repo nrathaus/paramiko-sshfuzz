@@ -420,7 +420,9 @@ class Packetizer:
         # encrypt this sucka
         data = data.asbytes()
         if len(data) == 0:
-            # raise ValueError("send_message - data is empty")
+            # Deliberately not sending anything is a valid fuzzing case (e.g.
+            # simulating a client/server that doesn't respond to a request),
+            # so just skip the send rather than erroring out.
             return
 
         cmd = byte_ord(data[0])
@@ -650,32 +652,32 @@ class Packetizer:
             self.__logger.log(level, msg)
 
     def _check_keepalive(self):
+        if not self.__block_engine_out:
+            # wait till we're encrypting
+            self.keep_alive_wait = None
+            return
+
         now = time.time()
 
-        if (
-            not self.__keepalive_interval
-            or not self.__block_engine_out
-            or self.__need_rekey
-        ):
-            # Wait till we're encrypting, and not in the middle of rekeying
-            # However, since the communication channel may be broken/malformed
-            # (due to server-client communication issues) we may get stuck in a
-            # loop due to this, put a 5s limit on this loop
+        if self.__need_rekey:
+            # Wait till rekeying finishes. However, since the communication
+            # channel may be broken/malformed (due to server-client
+            # communication issues) we may get stuck waiting on a rekey that
+            # never completes, so put a 5s limit on this wait. This applies
+            # regardless of whether keepalives are configured, since it's
+            # this wait itself (not the keepalive callback) that can loop
+            # forever.
             if self.keep_alive_wait is None:
                 self.keep_alive_wait = now
-
-            if now - self.keep_alive_wait > 5:
-                # We waited for 5 seconds, don't anymore..
-                pass
-            else:
+            if now - self.keep_alive_wait <= 5:
                 return
+            raise EOFError("Timed out waiting for rekey to complete")
 
         self.keep_alive_wait = None
+        if not self.__keepalive_interval:
+            # keepalives aren't configured: nothing left to do
+            return
         if now > self.__keepalive_last + self.__keepalive_interval:
-            if self.__keepalive_callback is None:
-                # If there is no keepalive callback, just raise an EOFError
-                raise EOFError("Keepalive timeout")
-
             self.__keepalive_callback()
             self.__keepalive_last = now
 

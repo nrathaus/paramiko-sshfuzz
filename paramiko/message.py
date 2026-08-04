@@ -47,7 +47,7 @@ class Message:
     # Stores the fields that were added to the Message
     fields = []
 
-    def __init__(self, name, content=None):
+    def __init__(self, name="", content=None):
         """
         Create a new SSH2 message.
 

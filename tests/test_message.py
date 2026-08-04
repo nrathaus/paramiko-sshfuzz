@@ -108,6 +108,6 @@ class MessageTest(unittest.TestCase):
 
     def test_bytes_str_and_repr(self):
         msg = Message('', self.__d)
-        assert str(msg) == f"paramiko.Message({self.__d!r})"
+        assert str(msg) == f"paramiko.Message('', {self.__d!r})"
         assert repr(msg) == str(msg)
         assert bytes(msg) == msg.asbytes() == self.__d

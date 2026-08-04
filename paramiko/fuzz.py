@@ -45,15 +45,21 @@ class FuzzControl(object):
         self.print_trace()
 
         def mutate_candidate(*args, **kwargs):
+            if f.__name__ not in self.fuzz_methods:
+                # Nothing registered to fuzz this method: skip the
+                # (expensive) stack introspection below entirely so normal,
+                # non-fuzzing use of paramiko doesn't pay for it.
+                return f(*args, **kwargs)
+
             signature = tuple([self.hash_sig(frame) for frame in inspect.stack()])
             self.signatures_invocations.setdefault(signature, 0)
             logger.info("adding dynamic candidate: %s" % f)
             self.print_trace()
             if self.mutations >= self.MUTATION_PER_RUN:
                 raise StopFuzzing()
+
             if (
-                f.__name__ in self.fuzz_methods
-                and self.signatures_invocations[signature] == 0
+                self.signatures_invocations[signature] == 0
                 and self.mutations < self.MUTATION_PER_RUN
             ):
                 self.mutations += 1
@@ -62,6 +68,7 @@ class FuzzControl(object):
                     "--WHOOP WHOOP MUTATE! %s - %s" % (f.__name__, repr(signature))
                 )
                 return self.fuzz_methods[f.__name__](*args, **kwargs)
+
             return f(*args, **kwargs)
 
         return mutate_candidate
