@@ -861,7 +861,7 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
         # this method may be called from other threads (prefetch)
         self._lock.acquire()
         try:
-            msg = Message(f'async-request - {CMD_NAMES.get(t, t)}')
+            msg = Message(f'SFTP - {CMD_NAMES.get(t, t)}')
             msg.add_int(self.request_number)
             for item in args:
                 if isinstance(item, int64):
