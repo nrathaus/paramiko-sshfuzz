@@ -1,7 +1,8 @@
 [project]
 name = "paramiko"
 requires-python = ">=3.9"
-version = "4.0.0"
+# Computed in setup.py from the last commit's date -- see the comment there.
+dynamic = ["version"]
 description = "SSH2 protocol library"
 readme = "README.rst"
 license = "LGPL-2.1"
