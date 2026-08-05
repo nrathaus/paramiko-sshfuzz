@@ -243,6 +243,62 @@ class TransportTest(unittest.TestCase):
         self.tc.renegotiate_keys()
         self.ts.send_ignore(1024)
 
+    def test_chacha20_poly1305(self):
+        """
+        verify chacha20-poly1305@openssh.com round-trips, including rekey.
+
+        Unlike the other AEAD ciphers, its packet length field is encrypted
+        rather than sent as plaintext associated data, so it takes a dedicated
+        path through the `.Packetizer`. The nonce is the packet sequence
+        number, which means a rekey (where sequence numbers may reset) is the
+        place a mis-sourced nonce shows up.
+        """
+
+        def force_algorithms(options):
+            options.ciphers = ("chacha20-poly1305@openssh.com",)
+
+        self.setup_test_server(
+            client_options=force_algorithms, server_options=force_algorithms
+        )
+        self.assertEqual(
+            "chacha20-poly1305@openssh.com", self.tc.local_cipher
+        )
+        self.assertEqual(
+            "chacha20-poly1305@openssh.com", self.tc.remote_cipher
+        )
+        # The 16 byte poly1305 tag stands in for a MAC; there is no separate
+        # MAC algorithm.
+        self.assertEqual(16, self.tc.packetizer.get_mac_size_out())
+        self.assertEqual(16, self.tc.packetizer.get_mac_size_in())
+
+        chan = self.tc.open_session()
+        chan.invoke_shell()
+        schan = self.ts.accept(1.0)
+
+        def recv_exactly(channel, n):
+            out = bytes()
+            while len(out) < n:
+                got = channel.recv(n - len(out))
+                if not got:
+                    break
+                out += got
+            return out
+
+        # Multi-packet traffic in both directions, spanning a rekey.
+        payload = bytes(range(256)) * 400  # ~100 KiB, many packets
+        for _ in range(2):
+            self.tc.send_ignore(1024)
+            self.tc.renegotiate_keys()
+            self.ts.send_ignore(1024)
+
+            schan.sendall(payload)
+            self.assertEqual(payload, recv_exactly(chan, len(payload)))
+            chan.sendall(payload)
+            self.assertEqual(payload, recv_exactly(schan, len(payload)))
+
+        chan.close()
+        schan.close()
+
     @slow
     def test_keepalive(self):
         """
@@ -454,6 +510,11 @@ class TransportTest(unittest.TestCase):
 
         def force_compression(o):
             o.compression = ("zlib",)
+            # The exact byte count asserted below assumes a classic cipher:
+            # the 4 byte length field padded along with the payload, plus a
+            # separate MAC. Pin one, since the default preference now leads
+            # with an AEAD cipher (which frames differently).
+            o.ciphers = ("aes128-ctr",)
 
         self.setup_test_server(force_compression, force_compression)
         chan = self.tc.open_session()

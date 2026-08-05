@@ -28,6 +28,10 @@ import threading
 import time
 from hmac import HMAC
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+from cryptography.hazmat.primitives.poly1305 import Poly1305
+
 from paramiko import util
 from paramiko.common import (
     linefeed_byte,
@@ -62,6 +66,72 @@ def first_arg(e):
     return arg
 
 
+class ChaCha20Poly1305Engine:
+    """
+    Encrypt/decrypt engine for ``chacha20-poly1305@openssh.com``.
+
+    Exposes the same ``encrypt``/``decrypt`` signature as
+    `cryptography.hazmat.primitives.ciphers.aead.AESGCM` so that it can be
+    dropped into `.Transport`'s AEAD code path. The ``iv`` argument is ignored:
+    per OpenSSH's ``PROTOCOL.chacha20poly1305``, the nonce is the SSH packet
+    sequence number, which the `.Packetizer` publishes on `seq` before handing
+    a packet over. The engine deliberately does *not* count sequence numbers
+    itself - doing so would desynchronise whenever a rekey resets them.
+    """
+
+    TAG_SIZE = 16
+
+    def __init__(self, key):
+        if len(key) != 64:
+            raise ValueError(
+                "chacha20-poly1305@openssh.com needs a 64 byte key"
+            )
+        # K_2 encrypts the payload and derives the poly1305 key; K_1 encrypts
+        # the 4 byte packet length field.
+        self.payload_key = key[0:32]
+        self.length_key = key[32:64]
+        self.seq = 0
+
+    def _keystream(self, key, counter, length):
+        # cryptography wants a 16 byte nonce: an 8 byte little-endian block
+        # counter followed by the 8 byte nonce proper.
+        nonce = struct.pack("<Q", counter) + struct.pack(">Q", self.seq)
+        cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None)
+        return cipher.encryptor().update(bytes(length))
+
+    def _xor_length(self, four_bytes):
+        keystream = self._keystream(self.length_key, 0, 4)
+        return bytes(a ^ b for a, b in zip(four_bytes, keystream))
+
+    def encrypt_length(self, length_bytes):
+        return self._xor_length(length_bytes)
+
+    def decrypt_length(self, length_bytes):
+        return struct.unpack(">I", self._xor_length(length_bytes))[0]
+
+    def encrypt(self, iv, data, aad):
+        poly1305_key = self._keystream(self.payload_key, 0, 32)
+        keystream = self._keystream(self.payload_key, 1, len(data))
+        ciphertext = bytes(a ^ b for a, b in zip(data, keystream))
+        tag = Poly1305.generate_tag(poly1305_key, aad + ciphertext)
+        return ciphertext + tag
+
+    def decrypt(self, iv, data, aad):
+        if len(data) < self.TAG_SIZE:
+            raise SSHException("Truncated packet")
+
+        split = len(data) - self.TAG_SIZE
+        ciphertext, tag = data[:split], data[split:]
+        poly1305_key = self._keystream(self.payload_key, 0, 32)
+        try:
+            Poly1305.verify_tag(poly1305_key, aad + ciphertext, tag)
+        except InvalidSignature as e:
+            raise SSHException("Mismatched MAC") from e
+
+        keystream = self._keystream(self.payload_key, 1, len(ciphertext))
+        return bytes(a ^ b for a, b in zip(ciphertext, keystream))
+
+
 class Packetizer:
     """
     Implementation of the base SSH packet protocol.
@@ -77,6 +147,11 @@ class Packetizer:
     REKEY_PACKETS_OVERFLOW_MAX = pow(2, 29)
     # Allow receiving this many bytes after a re-key request before terminating
     REKEY_BYTES_OVERFLOW_MAX = pow(2, 29)
+
+    # Largest packet length we'll believe, matching OpenSSH's PACKET_MAX_SIZE.
+    # Only enforced where a bogus length would otherwise make us block reading
+    # forever (ie chacha20-poly1305, where the length is encrypted).
+    MAX_PACKET_SIZE = 256 * 1024
 
     def __init__(self, socket):
         self.__socket = socket
@@ -501,64 +576,10 @@ class Packetizer:
         :raises: `.SSHException` -- if the packet is mangled
         :raises: `.NeedRekeyException` -- if the transport should rekey
         """
-        header = self.read_all(self.__block_size_in, check_rekey=True)
-        if self.__etm_in:
-            packet_size = struct.unpack(">I", header[:4])[0]
-            remaining = packet_size - self.__block_size_in + 4
-            packet = header[4:] + self.read_all(remaining, check_rekey=False)
-            mac = self.read_all(self.__mac_size_in, check_rekey=False)
-            mac_payload = (
-                struct.pack(">II", self.__sequence_number_in, packet_size)
-                + packet
-            )
-            my_mac = compute_hmac(
-                self.__mac_key_in, mac_payload, self.__mac_engine_in
-            )[: self.__mac_size_in]
-            if not util.constant_time_bytes_eq(my_mac, mac):
-                raise SSHException("Mismatched MAC")
-            header = packet
-
-        if self.__aead_in:
-            # Grab unencrypted (considered 'additional data' under GCM) packet
-            # length.
-            packet_size = struct.unpack(">I", header[:4])[0]
-            aad = header[:4]
-            remaining = (
-                packet_size - self.__block_size_in + 4 + self.__mac_size_in
-            )
-            packet = header[4:] + self.read_all(remaining, check_rekey=False)
-            header = self.__block_engine_in.decrypt(self.__iv_in, packet, aad)
-
-            self.__iv_in = self._inc_iv_counter(self.__iv_in)
-
-        if self.__block_engine_in is not None and not self.__aead_in:
-            header = self.__block_engine_in.update(header)
-        if self.__dump_packets:
-            self._log(DEBUG, util.format_binary(header, "IN: "))
-
-        # When ETM or AEAD (GCM) are in use, we've already read the packet size
-        # & decrypted everything, so just set the packet back to the header we
-        # obtained.
-        if self.__etm_in or self.__aead_in:
-            packet = header
-        # Otherwise, use the older non-ETM logic
+        if isinstance(self.__block_engine_in, ChaCha20Poly1305Engine):
+            packet, packet_size = self._read_chacha20_poly1305_packet()
         else:
-            packet_size = struct.unpack(">I", header[:4])[0]
-
-            # leftover contains decrypted bytes from the first block (after the
-            # length field)
-            leftover = header[4:]
-            if (packet_size - len(leftover)) % self.__block_size_in != 0:
-                raise SSHException("Invalid packet blocking")
-            buf = self.read_all(
-                packet_size + self.__mac_size_in - len(leftover)
-            )
-            packet = buf[: packet_size - len(leftover)]
-            post_packet = buf[packet_size - len(leftover) :]
-
-            if self.__block_engine_in is not None:
-                packet = self.__block_engine_in.update(packet)
-            packet = leftover + packet
+            packet, packet_size, post_packet = self._read_classic_packet()
 
         if self.__dump_packets:
             self._log(DEBUG, util.format_binary(packet, "IN: "))
@@ -640,6 +661,103 @@ class Packetizer:
             )
         return cmd, msg
 
+    def _read_chacha20_poly1305_packet(self):
+        """
+        Read one ``chacha20-poly1305@openssh.com`` packet off the wire.
+
+        Unlike AES-GCM, the length field is encrypted rather than sent as
+        plaintext associated data, so it has to be decrypted before we know how
+        much more to read. Returns the decrypted packet and its length.
+        """
+        self.__block_engine_in.seq = self.__sequence_number_in
+
+        encrypted_length = self.read_all(4, check_rekey=True)
+        packet_size = self.__block_engine_in.decrypt_length(encrypted_length)
+        # Same ceiling OpenSSH enforces. Without it a corrupted length makes
+        # read_all block forever -- and the fuzzer will produce corrupted
+        # lengths.
+        if packet_size < 8 or packet_size > self.MAX_PACKET_SIZE:
+            raise SSHException("Invalid packet length {}".format(packet_size))
+
+        packet = self.__block_engine_in.decrypt(
+            None,
+            self.read_all(
+                packet_size + ChaCha20Poly1305Engine.TAG_SIZE,
+                check_rekey=False,
+            ),
+            encrypted_length,
+        )
+        return packet, packet_size
+
+    def _read_classic_packet(self):
+        """
+        Read one packet off the wire under any cipher whose length field is not
+        encrypted: plain CBC/CTR, EtM, or AES-GCM. Returns the decrypted
+        packet, its length, and any trailing bytes (the MAC, for the non-EtM
+        non-AEAD case).
+        """
+        post_packet = bytes()
+        header = self.read_all(self.__block_size_in, check_rekey=True)
+        if self.__etm_in:
+            packet_size = struct.unpack(">I", header[:4])[0]
+            remaining = packet_size - self.__block_size_in + 4
+            packet = header[4:] + self.read_all(remaining, check_rekey=False)
+            mac = self.read_all(self.__mac_size_in, check_rekey=False)
+            mac_payload = (
+                struct.pack(">II", self.__sequence_number_in, packet_size)
+                + packet
+            )
+            my_mac = compute_hmac(
+                self.__mac_key_in, mac_payload, self.__mac_engine_in
+            )[: self.__mac_size_in]
+            if not util.constant_time_bytes_eq(my_mac, mac):
+                raise SSHException("Mismatched MAC")
+            header = packet
+
+        if self.__aead_in:
+            # Grab unencrypted (considered 'additional data' under GCM) packet
+            # length.
+            packet_size = struct.unpack(">I", header[:4])[0]
+            aad = header[:4]
+            remaining = (
+                packet_size - self.__block_size_in + 4 + self.__mac_size_in
+            )
+            packet = header[4:] + self.read_all(remaining, check_rekey=False)
+            header = self.__block_engine_in.decrypt(self.__iv_in, packet, aad)
+
+            self.__iv_in = self._inc_iv_counter(self.__iv_in)
+
+        if self.__block_engine_in is not None and not self.__aead_in:
+            header = self.__block_engine_in.update(header)
+        if self.__dump_packets:
+            self._log(DEBUG, util.format_binary(header, "IN: "))
+
+        # When ETM or AEAD (GCM) are in use, we've already read the packet size
+        # & decrypted everything, so just set the packet back to the header we
+        # obtained.
+        if self.__etm_in or self.__aead_in:
+            packet = header
+        # Otherwise, use the older non-ETM logic
+        else:
+            packet_size = struct.unpack(">I", header[:4])[0]
+
+            # leftover contains decrypted bytes from the first block (after the
+            # length field)
+            leftover = header[4:]
+            if (packet_size - len(leftover)) % self.__block_size_in != 0:
+                raise SSHException("Invalid packet blocking")
+            buf = self.read_all(
+                packet_size + self.__mac_size_in - len(leftover)
+            )
+            packet = buf[: packet_size - len(leftover)]
+            post_packet = buf[packet_size - len(leftover) :]
+
+            if self.__block_engine_in is not None:
+                packet = self.__block_engine_in.update(packet)
+            packet = leftover + packet
+
+        return packet, packet_size, post_packet
+
     # ...protected...
 
     def _log(self, level, msg):
@@ -714,6 +832,18 @@ class Packetizer:
             packet += zero_byte * padding
         else:
             packet += os.urandom(padding)
+        if isinstance(self.__block_engine_out, ChaCha20Poly1305Engine):
+            # The length field is encrypted (not plaintext associated data as
+            # under GCM), so do it here: send_message emits packet[0:4]
+            # verbatim and hands the same bytes to encrypt() as the associated
+            # data, which is exactly what we want once they're ciphertext.
+            # Publishing the sequence number here is safe -- _build_packet runs
+            # immediately before encrypt(), inside send_message's write lock.
+            self.__block_engine_out.seq = self.__sequence_number_out
+            packet = (
+                self.__block_engine_out.encrypt_length(packet[0:4])
+                + packet[4:]
+            )
         return packet
 
     def _trigger_rekey(self):

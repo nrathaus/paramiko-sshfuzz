@@ -104,7 +104,11 @@ from paramiko.kex_group16 import KexGroup16SHA512
 from paramiko.kex_ecdh_nist import KexNistp256, KexNistp384, KexNistp521
 from paramiko.kex_gss import KexGSSGex, KexGSSGroup1, KexGSSGroup14
 from paramiko.message import Message
-from paramiko.packet import Packetizer, NeedRekeyException
+from paramiko.packet import (
+    ChaCha20Poly1305Engine,
+    Packetizer,
+    NeedRekeyException,
+)
 from paramiko.primes import ModulusPack
 from paramiko.rsakey import RSAKey
 from paramiko.ecdsakey import ECDSAKey
@@ -178,6 +182,10 @@ class Transport(threading.Thread, ClosingContextManager):
     # `disabled_algorithms` constructor argument (also available in SSHClient)
     # instead of monkeypatching or subclassing.
     _preferred_ciphers = (
+        # First, like OpenSSH -- otherwise we'd keep negotiating down to
+        # aes-ctr/aes-gcm against real deployments and never exercise the
+        # cipher they actually use. Also the only cipher tinysshd offers.
+        "chacha20-poly1305@openssh.com",
         "aes128-ctr",
         "aes192-ctr",
         "aes256-ctr",
@@ -293,6 +301,20 @@ class Transport(threading.Thread, ClosingContextManager):
             "block-size": 16,
             "iv-size": 12,
             "key-size": 32,
+            "is_aead": True,
+        },
+        "chacha20-poly1305@openssh.com": {
+            "class": ChaCha20Poly1305Engine,
+            # Not a real block cipher; 8 is just the SSH minimum padding
+            # granularity, and is what makes the padding come out right.
+            "block-size": 8,
+            # Unused -- the nonce is the sequence number -- but paramiko
+            # derives an IV for every AEAD cipher and steps it after each
+            # packet, and a zero-length IV makes _inc_iv_counter produce
+            # steadily growing byte strings.
+            "iv-size": 12,
+            # 512 bits of key material, split into two 256-bit chacha20 keys.
+            "key-size": 64,
             "is_aead": True,
         },
     }
