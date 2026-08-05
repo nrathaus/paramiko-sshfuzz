@@ -101,6 +101,7 @@ from paramiko.kex_gex import KexGex, KexGexSHA256
 from paramiko.kex_group1 import KexGroup1
 from paramiko.kex_group14 import KexGroup14, KexGroup14SHA256
 from paramiko.kex_group16 import KexGroup16SHA512
+from paramiko.kex_group18 import KexGroup18SHA512
 from paramiko.kex_ecdh_nist import KexNistp256, KexNistp384, KexNistp521
 from paramiko.kex_gss import KexGSSGex, KexGSSGroup1, KexGSSGroup14
 from paramiko.message import Message
@@ -197,14 +198,21 @@ class Transport(threading.Thread, ClosingContextManager):
         "aes256-gcm@openssh.com",
     )
     _preferred_macs = (
-        "hmac-sha2-256",
-        "hmac-sha2-512",
+        # Encrypt-then-MAC first, matching OpenSSH. Listing the plain variants
+        # first meant EtM was never negotiated against a peer that supports
+        # both, so the Packetizer's EtM path went unexercised outside tests.
         "hmac-sha2-256-etm@openssh.com",
         "hmac-sha2-512-etm@openssh.com",
+        "hmac-sha1-etm@openssh.com",
+        "hmac-sha2-256",
+        "hmac-sha2-512",
         "hmac-sha1",
         "hmac-md5",
         "hmac-sha1-96",
         "hmac-md5-96",
+        "hmac-sha1-96-etm@openssh.com",
+        "hmac-md5-etm@openssh.com",
+        "hmac-md5-96-etm@openssh.com",
     )
     # ~= HostKeyAlgorithms in OpenSSH land
     _preferred_keys = (
@@ -231,6 +239,7 @@ class Transport(threading.Thread, ClosingContextManager):
         "ecdh-sha2-nistp384",
         "ecdh-sha2-nistp521",
         "diffie-hellman-group16-sha512",
+        "diffie-hellman-group18-sha512",
         "diffie-hellman-group-exchange-sha256",
         "diffie-hellman-group14-sha256",
         "diffie-hellman-group-exchange-sha1",
@@ -238,7 +247,15 @@ class Transport(threading.Thread, ClosingContextManager):
         "diffie-hellman-group1-sha1",
     )
     if KexCurve25519.is_available():
-        _preferred_kex = ("curve25519-sha256@libssh.org",) + _preferred_kex
+        # curve25519-sha256 is the RFC 8731 name for what was originally
+        # deployed as curve25519-sha256@libssh.org; the two are the same
+        # algorithm. Offer the standard name first, since peers that only
+        # implement it (rather than the legacy alias) are otherwise
+        # unreachable.
+        _preferred_kex = (
+            "curve25519-sha256",
+            "curve25519-sha256@libssh.org",
+        ) + _preferred_kex
     _preferred_gsskex = (
         "gss-gex-sha1-toWM5Slw5Ew8Mqkay+al2g==",
         "gss-group14-sha1-toWM5Slw5Ew8Mqkay+al2g==",
@@ -322,12 +339,16 @@ class Transport(threading.Thread, ClosingContextManager):
     _mac_info = {
         "hmac-sha1": {"class": sha1, "size": 20},
         "hmac-sha1-96": {"class": sha1, "size": 12},
+        "hmac-sha1-etm@openssh.com": {"class": sha1, "size": 20},
+        "hmac-sha1-96-etm@openssh.com": {"class": sha1, "size": 12},
         "hmac-sha2-256": {"class": sha256, "size": 32},
         "hmac-sha2-256-etm@openssh.com": {"class": sha256, "size": 32},
         "hmac-sha2-512": {"class": sha512, "size": 64},
         "hmac-sha2-512-etm@openssh.com": {"class": sha512, "size": 64},
         "hmac-md5": {"class": md5, "size": 16},
         "hmac-md5-96": {"class": md5, "size": 12},
+        "hmac-md5-etm@openssh.com": {"class": md5, "size": 16},
+        "hmac-md5-96-etm@openssh.com": {"class": md5, "size": 12},
     }
 
     _key_info = {
@@ -358,6 +379,7 @@ class Transport(threading.Thread, ClosingContextManager):
         "diffie-hellman-group-exchange-sha256": KexGexSHA256,
         "diffie-hellman-group14-sha256": KexGroup14SHA256,
         "diffie-hellman-group16-sha512": KexGroup16SHA512,
+        "diffie-hellman-group18-sha512": KexGroup18SHA512,
         "gss-group1-sha1-toWM5Slw5Ew8Mqkay+al2g==": KexGSSGroup1,
         "gss-group14-sha1-toWM5Slw5Ew8Mqkay+al2g==": KexGSSGroup14,
         "gss-gex-sha1-toWM5Slw5Ew8Mqkay+al2g==": KexGSSGex,
@@ -366,6 +388,8 @@ class Transport(threading.Thread, ClosingContextManager):
         "ecdh-sha2-nistp521": KexNistp521,
     }
     if KexCurve25519.is_available():
+        # Same class under both names -- see _preferred_kex above.
+        _kex_info["curve25519-sha256"] = KexCurve25519
         _kex_info["curve25519-sha256@libssh.org"] = KexCurve25519
 
     _compression_info = {

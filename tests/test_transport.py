@@ -23,6 +23,7 @@ Some unit tests for the ssh2 protocol in Transport.
 
 from binascii import hexlify
 import itertools
+import logging
 import select
 import socket
 import time
@@ -44,6 +45,8 @@ from paramiko import (
     Transport,
 )
 from paramiko.auth_handler import AuthOnlyHandler
+from paramiko.kex_curve25519 import KexCurve25519
+from paramiko.kex_group18 import KexGroup18SHA512
 from paramiko import OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 from paramiko.common import (
     DEFAULT_MAX_PACKET_SIZE,
@@ -242,6 +245,116 @@ class TransportTest(unittest.TestCase):
         self.tc.send_ignore(1024)
         self.tc.renegotiate_keys()
         self.ts.send_ignore(1024)
+
+    def test_kex_group18_sha512(self):
+        """
+        verify diffie-hellman-group18-sha512 completes a working exchange.
+
+        The 8192-bit RFC 3526 prime is the whole substance of this algorithm -
+        a single wrong digit still looks like a valid handshake attempt but
+        derives a different shared secret, which surfaces here as a failed
+        exchange rather than a subtle mismatch.
+        """
+
+        def force_kex(options):
+            options.kex = ("diffie-hellman-group18-sha512",)
+
+        self.setup_test_server(
+            client_options=force_kex, server_options=force_kex
+        )
+        self.assertEqual(8192, KexGroup18SHA512.P.bit_length())
+        self.assertEqual(2, KexGroup18SHA512.G)
+
+        chan = self.tc.open_session()
+        chan.invoke_shell()
+        schan = self.ts.accept(1.0)
+        schan.sendall(b"group18\n")
+        self.assertEqual(b"group18\n", chan.recv(8))
+        chan.close()
+        schan.close()
+
+    def test_etm_digest_is_preferred(self):
+        """
+        verify an EtM digest wins by default, so the EtM path gets exercised.
+
+        Ordering the plain variants first meant EtM was never selected against
+        a peer offering both. Uses a non-AEAD cipher, since an AEAD cipher
+        supplies its own tag and makes the MAC choice moot.
+        """
+
+        def classic_cipher(options):
+            options.ciphers = ("aes128-ctr",)
+
+        self.setup_test_server(
+            client_options=classic_cipher, server_options=classic_cipher
+        )
+        self.assertTrue(
+            self.tc.local_mac.endswith("-etm@openssh.com"),
+            "expected an EtM digest, got {}".format(self.tc.local_mac),
+        )
+        self.assertTrue(self.tc.packetizer._Packetizer__etm_out)
+        self.assertTrue(self.tc.packetizer._Packetizer__etm_in)
+
+        chan = self.tc.open_session()
+        chan.invoke_shell()
+        schan = self.ts.accept(1.0)
+        schan.sendall(b"etm\n")
+        self.assertEqual(b"etm\n", chan.recv(4))
+        chan.close()
+        schan.close()
+
+    def test_curve25519_sha256_both_names(self):
+        """
+        verify curve25519-sha256 and its @libssh.org alias both work.
+
+        RFC 8731 standardised curve25519-sha256 for the algorithm originally
+        deployed as curve25519-sha256@libssh.org. They are the same exchange,
+        so both names must be negotiable - a peer offering only the standard
+        name was previously unreachable.
+        """
+        if not KexCurve25519.is_available():
+            self.skipTest("curve25519 not available")
+
+        for name in ("curve25519-sha256", "curve25519-sha256@libssh.org"):
+            # Capture the name the handshake actually agreed on, so this
+            # proves the wire name rather than just a working handshake.
+            agreed = []
+
+            class Sniff(logging.Handler):
+                def emit(self, record):
+                    msg = record.getMessage()
+                    if msg.startswith("Kex: "):
+                        agreed.append(msg[len("Kex: ") :])
+
+            logger = logging.getLogger("paramiko")
+            handler = Sniff()
+            old_level = logger.level
+            logger.setLevel(logging.DEBUG)
+            logger.addHandler(handler)
+            try:
+                self.setUp()  # fresh transports per iteration
+
+                def force_kex(options):
+                    options.kex = (name,)
+
+                self.setup_test_server(
+                    client_options=force_kex, server_options=force_kex
+                )
+                self.assertIn(name, agreed)
+                self.assertEqual(
+                    KexCurve25519, self.tc._kex_info[name]
+                )
+                # Prove the session is actually usable, not just handshaken.
+                chan = self.tc.open_session()
+                chan.invoke_shell()
+                schan = self.ts.accept(1.0)
+                schan.sendall(b"curve25519\n")
+                self.assertEqual(b"curve25519\n", chan.recv(11))
+                chan.close()
+                schan.close()
+            finally:
+                logger.removeHandler(handler)
+                logger.setLevel(old_level)
 
     def test_chacha20_poly1305(self):
         """
@@ -510,11 +623,13 @@ class TransportTest(unittest.TestCase):
 
         def force_compression(o):
             o.compression = ("zlib",)
-            # The exact byte count asserted below assumes a classic cipher:
-            # the 4 byte length field padded along with the payload, plus a
-            # separate MAC. Pin one, since the default preference now leads
-            # with an AEAD cipher (which frames differently).
+            # The exact byte count asserted below assumes classic framing: the
+            # 4 byte length field padded along with the payload, plus a
+            # separate MAC. Pin both, since the default preferences now lead
+            # with an AEAD cipher and an EtM digest, each of which excludes the
+            # length field from padding and so frames differently.
             o.ciphers = ("aes128-ctr",)
+            o.digests = ("hmac-sha2-256",)
 
         self.setup_test_server(force_compression, force_compression)
         chan = self.tc.open_session()
