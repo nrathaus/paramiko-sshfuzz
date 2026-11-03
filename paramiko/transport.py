@@ -103,6 +103,7 @@ from paramiko.kex_group14 import KexGroup14, KexGroup14SHA256
 from paramiko.kex_group16 import KexGroup16SHA512
 from paramiko.kex_group18 import KexGroup18SHA512
 from paramiko.kex_ecdh_nist import KexNistp256, KexNistp384, KexNistp521
+from paramiko.kex_mlkem import KexMLKEM768X25519
 from paramiko.kex_gss import KexGSSGex, KexGSSGroup1, KexGSSGroup14
 from paramiko.message import Message
 from paramiko.packet import (
@@ -256,6 +257,11 @@ class Transport(threading.Thread, ClosingContextManager):
             "curve25519-sha256",
             "curve25519-sha256@libssh.org",
         ) + _preferred_kex
+    if KexMLKEM768X25519.is_available():
+        # Hybrid post-quantum, and first in the list for the same reason
+        # OpenSSH 10 made it the default: it is what a current server will
+        # pick, so anything behind it here goes untested against one.
+        _preferred_kex = ("mlkem768x25519-sha256",) + _preferred_kex
     _preferred_gsskex = (
         "gss-gex-sha1-toWM5Slw5Ew8Mqkay+al2g==",
         "gss-group14-sha1-toWM5Slw5Ew8Mqkay+al2g==",
@@ -391,6 +397,8 @@ class Transport(threading.Thread, ClosingContextManager):
         # Same class under both names -- see _preferred_kex above.
         _kex_info["curve25519-sha256"] = KexCurve25519
         _kex_info["curve25519-sha256@libssh.org"] = KexCurve25519
+    if KexMLKEM768X25519.is_available():
+        _kex_info["mlkem768x25519-sha256"] = KexMLKEM768X25519
 
     _compression_info = {
         # zlib@openssh.com is just zlib, but only turned on after a successful
@@ -2069,10 +2077,19 @@ class Transport(threading.Thread, ClosingContextManager):
             )  # noqa
         self.host_key = key
 
+    def _add_K(self, m):
+        # Hybrid post-quantum kex methods (e.g. mlkem768x25519-sha256)
+        # produce K as a fixed-length hash output, which the draft mandates
+        # be encoded as an SSH string rather than an mpint.
+        if isinstance(self.K, bytes):
+            m.add_string(self.K)
+        else:
+            m.add_mpint(self.K)
+
     def _compute_key(self, id, nbytes):
         """id is 'A' - 'F' for the various keys used by ssh"""
         m = Message('Transport compute-key')
-        m.add_mpint(self.K)
+        self._add_K(m)
         m.add_bytes(self.H)
         m.add_byte(b(id))
         m.add_bytes(self.session_id)
@@ -2091,7 +2108,7 @@ class Transport(threading.Thread, ClosingContextManager):
         out = sofar = hash_algo(m.asbytes()).digest()
         while len(out) < nbytes:
             m = Message('Transport compute-key')
-            m.add_mpint(self.K)
+            self._add_K(m)
             m.add_bytes(self.H)
             m.add_bytes(sofar)
             digest = hash_algo(m.asbytes()).digest()

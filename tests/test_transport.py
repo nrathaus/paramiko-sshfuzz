@@ -47,6 +47,7 @@ from paramiko import (
 from paramiko.auth_handler import AuthOnlyHandler
 from paramiko.kex_curve25519 import KexCurve25519
 from paramiko.kex_group18 import KexGroup18SHA512
+from paramiko.kex_mlkem import KexMLKEM768X25519
 from paramiko import OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 from paramiko.common import (
     DEFAULT_MAX_PACKET_SIZE,
@@ -272,6 +273,92 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(b"group18\n", chan.recv(8))
         chan.close()
         schan.close()
+
+    def test_kex_mlkem768x25519_sha256(self):
+        """
+        verify mlkem768x25519-sha256 completes a working exchange.
+
+        The hybrid draft encodes K as an SSH string rather than an mpint, and
+        K is a fixed 32-byte hash output whose leading byte is zero roughly
+        half the time. Under mpint encoding that byte is stripped, so client
+        and server derive different session keys - which shows up here as a
+        handshake that fails only on some runs. Looping proves the encoding
+        rather than getting lucky once.
+        """
+        if not KexMLKEM768X25519.is_available():
+            self.skipTest("ML-KEM not available (needs cryptography >= 48)")
+
+        def force_kex(options):
+            options.kex = ("mlkem768x25519-sha256",)
+
+        for i in range(8):
+            if i:
+                self.tearDown()  # close the previous pair before replacing it
+                self.setUp()  # fresh transports per iteration
+            self.setup_test_server(
+                client_options=force_kex, server_options=force_kex
+            )
+            chan = self.tc.open_session()
+            chan.invoke_shell()
+            schan = self.ts.accept(1.0)
+            schan.sendall(b"mlkem\n")
+            self.assertEqual(b"mlkem\n", chan.recv(6))
+            chan.close()
+            schan.close()
+
+    def test_add_K_encodes_hybrid_secret_as_string(self):
+        """
+        verify a bytes K is encoded as a string and an int K as an mpint.
+
+        This is the one place the two kex families differ in key derivation,
+        and getting it wrong is invisible until the derived keys disagree.
+        """
+        m = Message()
+        self.tc.K = b"\x00\x01\x02"
+        self.tc._add_K(m)
+        m.rewind()
+        # String encoding is length-prefixed and keeps the leading zero.
+        self.assertEqual(b"\x00\x01\x02", m.get_string())
+
+        m = Message()
+        self.tc.K = 0x010203
+        self.tc._add_K(m)
+        m.rewind()
+        # mpint drops it, which is exactly why the two cannot share a path.
+        self.assertEqual(b"\x01\x02\x03", m.get_string())
+
+    def test_mlkem_rejects_wrong_length_peer_values(self):
+        """
+        verify the fixed-size C_INIT/S_REPLY checks reject short input.
+
+        These are the only length checks in the exchange; without them a
+        truncated peer value silently splits at the wrong offset and the
+        failure surfaces much later as a bad shared secret.
+        """
+        if not KexMLKEM768X25519.is_available():
+            self.skipTest("ML-KEM not available (needs cryptography >= 48)")
+
+        class FakeTransport:
+            server_mode = True
+
+        kex = KexMLKEM768X25519(FakeTransport())
+        m = Message()
+        m.add_string(b"\x00" * (KexMLKEM768X25519._C_INIT_BYTES - 1))
+        m.rewind()
+        with self.assertRaises(SSHException) as cm:
+            kex._parse_hybrid_init(m)
+        self.assertIn("Invalid C_INIT length", str(cm.exception))
+
+        kex = KexMLKEM768X25519(FakeTransport())
+        kex.transport.server_mode = False
+        m = Message()
+        m.add_string(b"K_S")
+        m.add_string(b"\x00" * (KexMLKEM768X25519._S_REPLY_BYTES - 1))
+        m.add_string(b"sig")
+        m.rewind()
+        with self.assertRaises(SSHException) as cm:
+            kex._parse_hybrid_reply(m)
+        self.assertIn("Invalid S_REPLY length", str(cm.exception))
 
     def test_etm_digest_is_preferred(self):
         """
