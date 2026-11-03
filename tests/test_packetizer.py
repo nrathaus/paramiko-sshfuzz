@@ -146,3 +146,77 @@ class PacketizerTest(unittest.TestCase):
 
         send = timeout()(p.send_message)
         self.assertRaises(EOFError, send, m)
+
+    def _linked_packetizers(self):
+        """A writer and a reader sharing one AES-CBC/SHA1 keystream."""
+        rsock = LoopSocket()
+        wsock = LoopSocket()
+        rsock.link(wsock)
+
+        writer = Packetizer(wsock)
+        writer.set_log(util.get_logger("paramiko.transport"))
+        encryptor = Cipher(
+            algorithms.AES(zero_byte * 16),
+            modes.CBC(x55 * 16),
+            backend=default_backend(),
+        ).encryptor()
+        writer.set_outbound_cipher(encryptor, 16, sha1, 12, x1f * 20)
+
+        reader = Packetizer(rsock)
+        reader.set_log(util.get_logger("paramiko.transport"))
+        decryptor = Cipher(
+            algorithms.AES(zero_byte * 16),
+            modes.CBC(x55 * 16),
+            backend=default_backend(),
+        ).decryptor()
+        reader.set_inbound_cipher(decryptor, 16, sha1, 12, x1f * 20)
+
+        return writer, reader, wsock
+
+    def test_send_messages_writes_once(self):
+        writer, reader, wsock = self._linked_packetizers()
+        writes = []
+        real_send = wsock.send
+
+        def counting_send(data):
+            writes.append(len(data))
+            return real_send(data)
+
+        wsock.send = counting_send
+
+        messages = []
+        for n in range(8):
+            m = Message('')
+            m.add_byte(byte_chr(100))
+            m.add_int(n)
+            messages.append(m)
+        writer.send_messages(messages)
+
+        self.assertEqual(1, len(writes))
+
+        # ...and the peer still decrypts every one of them, in order: the
+        # cipher and MAC run across the batch the same way they would have
+        # across eight separate sends.
+        for n in range(8):
+            cmd, m = reader.read_message()
+            self.assertEqual(100, cmd)
+            self.assertEqual(n, m.get_int())
+
+    def test_send_messages_skips_empty_messages(self):
+        writer, reader, wsock = self._linked_packetizers()
+        full = Message('')
+        full.add_byte(byte_chr(100))
+        full.add_int(7)
+        writer.send_messages([Message(''), full, Message('')])
+
+        cmd, m = reader.read_message()
+        self.assertEqual(100, cmd)
+        self.assertEqual(7, m.get_int())
+
+    def test_send_messages_with_nothing_to_send_writes_nothing(self):
+        writer, reader, wsock = self._linked_packetizers()
+        writes = []
+        wsock.send = lambda data: writes.append(data) or len(data)
+        writer.send_messages([])
+        writer.send_messages([Message('')])
+        self.assertEqual([], writes)

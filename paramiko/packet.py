@@ -492,7 +492,7 @@ class Packetizer:
         """
         Write a block of data using the current cipher, as an SSH block.
         """
-        # encrypt this sucka
+        # encrypt this message
         data = data.asbytes()
         if len(data) == 0:
             # Deliberately not sending anything is a valid fuzzing case (e.g.
@@ -500,73 +500,128 @@ class Packetizer:
             # so just skip the send rather than erroring out.
             return
 
+        self.__write_lock.acquire()
+        try:
+            out = self._encode_message(data)
+            self.write_all(out)
+            self._note_sent(len(out), 1)
+        finally:
+            self.__write_lock.release()
+
+    def send_messages(self, messages):
+        """
+        Write several blocks of data using a single socket write.
+
+        `send_message` writes one packet per call, so how many packets a peer
+        gets out of one ``recv()`` is left to the kernel's coalescing - it
+        varies run to run and the caller has no say in it. This encodes every
+        message first and writes the lot in one go, which makes the count the
+        caller's choice. That matters for a case aimed at a peer that handles
+        the first packet of a read and recurses over the remainder: the depth
+        it reaches is packets-per-read, and this is how a case picks it.
+
+        Empty messages are skipped, as in `send_message`.
+
+        One write is not a promise of one read: a batch bigger than the
+        peer's socket buffer, or than the path's MTU, still arrives in
+        pieces. For a chosen depth, keep the batch small enough to fit.
+        """
+        self.__write_lock.acquire()
+        try:
+            out = bytearray()
+            sent_packets = 0
+            for message in messages:
+                data = message.asbytes()
+                if len(data) == 0:
+                    continue
+                out += self._encode_message(data)
+                sent_packets += 1
+            if sent_packets == 0:
+                return
+            self.write_all(bytes(out))
+            self._note_sent(len(out), sent_packets)
+        finally:
+            self.__write_lock.release()
+
+    def _encode_message(self, data):
+        """
+        Turn one payload into the bytes that belong on the wire, advancing the
+        cipher and sequence number state as it goes.
+
+        Only ever called with the write lock held, and callers must write what
+        it returns in the order they asked for it: `_build_packet` publishes
+        the sequence number to the chacha20-poly1305 engine on the
+        understanding that encryption follows immediately, and every engine
+        here is a running state that the peer decrypts in wire order.
+        """
         cmd = byte_ord(data[0])
         if cmd in MSG_NAMES:
             cmd_name = MSG_NAMES[cmd]
         else:
             cmd_name = "${:x}".format(cmd)
         orig_len = len(data)
-        self.__write_lock.acquire()
-        try:
-            if self.__compress_engine_out is not None:
-                data = self.__compress_engine_out(data)
-            packet = self._build_packet(data)
-            if self.__dump_packets:
-                self._log(
-                    DEBUG,
-                    "Write packet <{}>, length {}".format(cmd_name, orig_len),
-                )
-                self._log(DEBUG, util.format_binary(packet, "OUT: "))
-            if self.__block_engine_out is not None:
-                if self.__etm_out:
-                    # packet length is not encrypted in EtM
-                    out = packet[0:4] + self.__block_engine_out.update(
-                        packet[4:]
-                    )
-                elif self.__aead_out:
-                    # Packet-length field is used as the 'associated data'
-                    # under AES-GCM, so like EtM, it's not encrypted. See
-                    # https://www.rfc-editor.org/rfc/rfc5647#section-7.3
-                    out = packet[0:4] + self.__block_engine_out.encrypt(
-                        self.__iv_out, packet[4:], packet[0:4]
-                    )
-                    self.__iv_out = self._inc_iv_counter(self.__iv_out)
-                else:
-                    out = self.__block_engine_out.update(packet)
-            else:
-                out = packet
-            # Append an MAC when needed (eg, not under AES-GCM)
-            if self.__block_engine_out is not None and not self.__aead_out:
-                packed = struct.pack(">I", self.__sequence_number_out)
-                payload = packed + (out if self.__etm_out else packet)
-                out += compute_hmac(
-                    self.__mac_key_out, payload, self.__mac_engine_out
-                )[: self.__mac_size_out]
-            next_seq = (self.__sequence_number_out + 1) & xffffffff
-            if next_seq == 0 and not self._initial_kex_done:
-                raise SSHException(
-                    "Sequence number rolled over during initial kex!"
-                )
-            self.__sequence_number_out = next_seq
-            self.write_all(out)
-
-            self.__sent_bytes += len(out)
-            self.__sent_packets += 1
-            sent_too_much = (
-                self.__sent_packets >= self.REKEY_PACKETS
-                or self.__sent_bytes >= self.REKEY_BYTES
+        if self.__compress_engine_out is not None:
+            data = self.__compress_engine_out(data)
+        packet = self._build_packet(data)
+        if self.__dump_packets:
+            self._log(
+                DEBUG,
+                "Write packet <{}>, length {}".format(cmd_name, orig_len),
             )
-            if sent_too_much and not self.__need_rekey:
-                # only ask once for rekeying
-                msg = "Rekeying (hit {} packets, {} bytes sent)"
-                self._log(
-                    DEBUG, msg.format(self.__sent_packets, self.__sent_bytes)
+            self._log(DEBUG, util.format_binary(packet, "OUT: "))
+        if self.__block_engine_out is not None:
+            if self.__etm_out:
+                # packet length is not encrypted in EtM
+                out = packet[0:4] + self.__block_engine_out.update(packet[4:])
+            elif self.__aead_out:
+                # Packet-length field is used as the 'associated data'
+                # under AES-GCM, so like EtM, it's not encrypted. See
+                # https://www.rfc-editor.org/rfc/rfc5647#section-7.3
+                out = packet[0:4] + self.__block_engine_out.encrypt(
+                    self.__iv_out, packet[4:], packet[0:4]
                 )
-                self.__received_bytes_overflow = 0
-                self.__received_packets_overflow = 0
-                self._trigger_rekey()
-        finally:
-            self.__write_lock.release()
+                self.__iv_out = self._inc_iv_counter(self.__iv_out)
+            else:
+                out = self.__block_engine_out.update(packet)
+        else:
+            out = packet
+        # Append an MAC when needed (eg, not under AES-GCM)
+        if self.__block_engine_out is not None and not self.__aead_out:
+            packed = struct.pack(">I", self.__sequence_number_out)
+            payload = packed + (out if self.__etm_out else packet)
+            out += compute_hmac(
+                self.__mac_key_out, payload, self.__mac_engine_out
+            )[: self.__mac_size_out]
+        next_seq = (self.__sequence_number_out + 1) & xffffffff
+        if next_seq == 0 and not self._initial_kex_done:
+            raise SSHException(
+                "Sequence number rolled over during initial kex!"
+            )
+        self.__sequence_number_out = next_seq
+        return out
+
+    def _note_sent(self, sent_bytes, sent_packets):
+        """
+        Account for a completed write, and ask for a rekey if it's time.
+
+        Called with the write lock held, once per write rather than once per
+        packet, so a batch is counted in full before the threshold is tested.
+        """
+        self.__sent_bytes += sent_bytes
+        self.__sent_packets += sent_packets
+        sent_too_much = (
+            self.__sent_packets >= self.REKEY_PACKETS
+            or self.__sent_bytes >= self.REKEY_BYTES
+        )
+        if sent_too_much and not self.__need_rekey:
+            # only ask once for rekeying
+            msg = "Rekeying (hit {} packets, {} bytes sent)"
+            self._log(
+                DEBUG, msg.format(self.__sent_packets, self.__sent_bytes)
+            )
+            self.__received_bytes_overflow = 0
+            self.__received_packets_overflow = 0
+            self._trigger_rekey()
 
     def read_message(self):
         """
