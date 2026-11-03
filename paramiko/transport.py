@@ -561,6 +561,12 @@ class Transport(threading.Thread, ClosingContextManager):
         # negotiated crypto parameters
         self.packetizer = (packetizer_class or Packetizer)(sock)
         self.local_version = "SSH-" + self._PROTO_ID + "-" + self._CLIENT_ID
+        # When set to a bytes object, these octets are written in place of
+        # ``local_version`` and nothing is appended - the only way to put a
+        # byte above 0x7F, a NUL, a bare LF, no terminator at all, or extra
+        # lines into the identification line. ``local_version`` still feeds
+        # the key exchange hash, so the two can deliberately disagree.
+        self.local_version_bytes = None
         self.remote_version = ""
         self.local_cipher = self.remote_cipher = ""
         self.local_kex_init = self.remote_kex_init = None
@@ -2249,11 +2255,27 @@ class Transport(threading.Thread, ClosingContextManager):
             self._log(DEBUG, "starting thread (client mode): {}".format(tid))
         try:
             try:
-                self.packetizer.write_all(b(self.local_version + "\r\n"))
-                self._log(
-                    DEBUG,
-                    "Local version/idstring: {}".format(self.local_version),
-                )  # noqa
+                if self.local_version_bytes is None:
+                    self.packetizer.write_all(b(self.local_version + "\r\n"))
+                    self._log(
+                        DEBUG,
+                        "Local version/idstring: {}".format(
+                            self.local_version
+                        ),
+                    )  # noqa
+                elif not isinstance(self.local_version_bytes, bytes):
+                    raise SSHException(
+                        "local_version_bytes must be bytes or None, got"
+                        " {}".format(type(self.local_version_bytes))
+                    )
+                else:
+                    self.packetizer.write_all(self.local_version_bytes)
+                    self._log(
+                        DEBUG,
+                        "Local idstring (raw): {!r}; kex hash uses: {}".format(
+                            self.local_version_bytes, self.local_version
+                        ),
+                    )  # noqa
                 self._check_banner()
                 # The above is actually very much part of the handshake, but
                 # sometimes the banner can be read but the machine is not

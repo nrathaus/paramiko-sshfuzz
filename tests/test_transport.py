@@ -1709,3 +1709,189 @@ class TestStrictKex:
                 transport_factory=RolloverTransport,
             ):
                 pass  # kexinit happens at connect...
+
+
+class TestIdentificationLineBytes(unittest.TestCase):
+    """
+    ``Transport.local_version_bytes`` puts arbitrary octets on the wire.
+
+    The identification line is the first attacker-controlled input a server
+    parses. ``local_version`` is a str with ``\\r\\n`` appended for it, so a
+    high byte, a NUL, a bare LF, a missing terminator and extra leading lines
+    are all unreachable through it; the bytes override exists for those.
+    """
+
+    def _banner_written(self, set_up, server_mode=False):
+        """The bytes a transport writes before anything else."""
+
+        peer, ours = socket.socketpair()
+        peer.settimeout(0.5)
+        seen = []
+
+        def read_peer():
+            # Read to a quiet socket rather than to a terminator: two of the
+            # shapes under test have no LF in them at all.
+            data = b""
+            while len(data) < 512:
+                try:
+                    chunk = peer.recv(256)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+            seen.append(data)
+
+        reader = threading.Thread(target=read_peer, daemon=True)
+        reader.start()
+
+        transport = Transport(ours)
+        set_up(transport)
+        try:
+            if server_mode:
+                transport.add_server_key(
+                    RSAKey.from_private_key_file(_support("rsa.key"))
+                )
+                transport.start_server(threading.Event(), NullServer())
+            else:
+                transport.start_client(timeout=2)
+        except Exception:
+            # Expected: nothing on the far end answers the banner. It is
+            # already on the wire by then, which is all this asserts on.
+            pass
+        reader.join(timeout=5)
+        transport.close()
+        peer.close()
+
+        self.assertTrue(seen, "the peer read nothing at all")
+        return seen[0]
+
+    def test_default_line_is_unchanged(self):
+        banner = self._banner_written(lambda t: None)
+        self.assertTrue(banner.startswith(b"SSH-2.0-paramiko_"))
+        self.assertTrue(banner.endswith(b"\r\n"))
+
+    def test_str_version_still_reaches_the_wire(self):
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version", "SSH-2.0-OpenSSH_42")
+        )
+        self.assertEqual(banner, b"SSH-2.0-OpenSSH_42\r\n")
+
+    def test_high_byte_and_nul_are_not_utf8_encoded(self):
+        # Through local_version these become b'\xc2\x80' and stay a character
+        # rather than an octet; the point of the override is that they do not.
+        wanted = b"SSH-2.0-OpenSSH_42\x80\x00\r\n"
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", wanted)
+        )
+        self.assertEqual(banner, wanted)
+
+    def test_bare_lf_terminator(self):
+        wanted = b"SSH-2.0-OpenSSH_42\n"
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", wanted)
+        )
+        self.assertEqual(banner, wanted)
+
+    def test_nothing_is_appended_when_there_is_no_terminator(self):
+        wanted = b"SSH-2.0-OpenSSH_42"
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", wanted)
+        )
+        self.assertEqual(banner, wanted)
+
+    def test_extra_lines_before_the_identification_line(self):
+        wanted = b"hello\r\nstill not the id line\r\nSSH-2.0-OpenSSH_42\r\n"
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", wanted)
+        )
+        self.assertEqual(banner, wanted)
+
+    def test_empty_line(self):
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", b"\r\n")
+        )
+        self.assertEqual(banner, b"\r\n")
+
+    def test_server_mode_writes_raw_bytes_too(self):
+        # Client and server share one write site, so the override covers both.
+        wanted = b"SSH-2.0-OpenSSH_42\x80\n"
+        banner = self._banner_written(
+            lambda t: setattr(t, "local_version_bytes", wanted),
+            server_mode=True,
+        )
+        self.assertEqual(banner, wanted)
+
+    def test_a_str_is_rejected_by_name(self):
+        # Without the check this is a bare EOFError from the transport
+        # thread, which says nothing about what was set wrongly.
+        transport = Transport(socket.socketpair()[1])
+        transport.local_version_bytes = "SSH-2.0-oops\r\n"
+        with self.assertRaises(SSHException) as caught:
+            transport.start_client(timeout=2)
+        self.assertIn(
+            "local_version_bytes must be bytes", str(caught.exception)
+        )
+        transport.close()
+
+    def test_local_version_is_left_alone_for_the_kex_hash(self):
+        # The attribute every kex module hashes must not be dragged into step
+        # with the wire - a fork that kept them equal would remove the only
+        # way to ask a server what it does when the two disagree.
+        transport = Transport(LoopSocket())
+        original = transport.local_version
+        transport.local_version_bytes = b"SSH-2.0-OpenSSH_42\x80\n"
+        self.assertEqual(transport.local_version, original)
+
+
+class TestIdentificationLineBytesHandshake(unittest.TestCase):
+    """The override reaches a real peer, and can be made to disagree."""
+
+    def setUp(self):
+        self.socks = LoopSocket()
+        self.sockc = LoopSocket()
+        self.sockc.link(self.socks)
+        self.tc = Transport(self.sockc)
+        self.ts = Transport(self.socks)
+
+    def tearDown(self):
+        self.tc.close()
+        self.ts.close()
+        self.socks.close()
+        self.sockc.close()
+
+    def _start_server(self):
+        host_key = RSAKey.from_private_key_file(_support("rsa.key"))
+        self.ts.add_server_key(host_key)
+        self.event = threading.Event()
+        self.ts.start_server(self.event, NullServer())
+        return RSAKey(data=host_key.asbytes())
+
+    def test_raw_line_is_what_the_peer_reads(self):
+        # Agreeing with local_version, so the hashes match and kex completes.
+        public_host_key = self._start_server()
+        self.tc.local_version = "SSH-2.0-OpenSSH_42"
+        self.tc.local_version_bytes = b"SSH-2.0-OpenSSH_42\r\n"
+        self.tc.connect(
+            hostkey=public_host_key, username="slowdive", password="pygmalion"
+        )
+        self.event.wait(5.0)
+        self.assertTrue(self.event.is_set())
+        self.assertEqual(self.ts.remote_version, "SSH-2.0-OpenSSH_42")
+
+    def test_wire_and_hash_can_be_made_to_disagree(self):
+        # The capability the brief is about: the server hashes the line it
+        # READ, the client hashes local_version, so the exchange hash differs
+        # and the host key signature fails to verify. That failure is the
+        # feature - it is how you ask a server what it does with a mismatch.
+        public_host_key = self._start_server()
+        self.tc.local_version = "SSH-2.0-OpenSSH_42"
+        self.tc.local_version_bytes = b"SSH-2.0-OpenSSH_43\r\n"
+        with self.assertRaises(SSHException) as caught:
+            self.tc.connect(
+                hostkey=public_host_key,
+                username="slowdive",
+                password="pygmalion",
+            )
+        self.assertIn("Signature verification", str(caught.exception))
+        self.assertEqual(self.ts.remote_version, "SSH-2.0-OpenSSH_43")
